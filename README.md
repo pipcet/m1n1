@@ -107,3 +107,6 @@ licensed under the [OFL-1.1](3rdparty_licenses/LICENSE.OFL-1.1) license and copy
 
 * Copyright 2010-2019 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the United States and/or other countries.
 * This Font Software is licensed under the SIL Open Font License, Version 1.1.
+
+m1n1 embeds portions of the 2013 dwc3 usb linux driver, which is [BSD-or-GPLv2 dual-licensed](3rdparty_licenses/LICENSE.BSD-3.dwc3) and copyright
+* Copyright (C) 2010-2011 Texas Instruments Incorporated - http://www.ti.com
