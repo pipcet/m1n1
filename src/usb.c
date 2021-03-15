@@ -13,6 +13,7 @@
 struct usb_drd_regs {
     uintptr_t drd_regs;
     uintptr_t atc;
+    uintptr_t drd_regs_unk3;
 };
 
 static const struct {
@@ -95,13 +96,26 @@ static int usb_drd_get_regs(const char *phy_path, const char *drd_path, struct u
         printf("usb: Error getting reg with index 0 for %s.\n", drd_path);
         return -1;
     }
+    if (adt_get_reg(adt, adt_drd_path, "reg", 3, &regs->drd_regs_unk3, NULL) < 0) {
+        printf("usb: Error getting reg with index 3 for %s.\n", drd_path);
+        return -1;
+    }
 
     return 0;
 }
 
 static void usb_phy_bringup(struct usb_drd_regs *usb_regs)
 {
-    /* TODO */
+    write32(usb_regs->atc + 0x08, 0x01c1000f);
+    write32(usb_regs->atc + 0x04, 0x00000003);
+    write32(usb_regs->atc + 0x04, 0x00000000);
+    write32(usb_regs->atc + 0x1c, 0x008c0813);
+    write32(usb_regs->atc + 0x00, 0x00000002);
+
+    write32(usb_regs->drd_regs_unk3 + 0x0c, 0x00000002);
+    write32(usb_regs->drd_regs_unk3 + 0x0c, 0x00000022);
+    write32(usb_regs->drd_regs_unk3 + 0x1c, 0x00000021);
+    write32(usb_regs->drd_regs_unk3 + 0x20, 0x00009332);
 }
 
 dwc3_dev_t *usb_bringup(u32 idx)
