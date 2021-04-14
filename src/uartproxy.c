@@ -184,43 +184,33 @@ int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
 
 void uartproxy_run(void)
 {
-    struct uartproxy_dev devs[3] = {
-        {
-            .ops = &uart_dev_ops,
-            .cookie = NULL,
-        },
-        {
-            .ops = &usb_dev_ops,
-            .cookie = usb_dwc3_port0,
-        },
+    struct uartproxy_dev devs[] = {
         {
             .ops = &usb_dev_ops,
             .cookie = usb_dwc3_port1,
         },
     };
-    u32 request_type[3];
+    u32 request_type[] = { 0, };
 
     int running = 1;
     int c;
 
     UartReply reply = {REQ_BOOT};
     reply.checksum = checksum(&reply, REPLY_SIZE - 4);
-    uart_write(&reply, REPLY_SIZE);
 
     while (running) {
-        for (int i = 0; i < 3; ++i) {
-            struct uartproxy_dev *dev = &devs[i];
-            if (!dev->ops->can_read(dev->cookie))
-                continue;
+	int i = 0;
+	struct uartproxy_dev *dev = &devs[i];
+	if (!dev->ops->can_read(dev->cookie))
+	    continue;
 
-            dev->ops->read(dev->cookie, &c, 1);
-            request_type[i] >>= 8;
-            request_type[i] |= c << 24;
+	dev->ops->read(dev->cookie, &c, 1);
+	request_type[i] >>= 8;
+	request_type[i] |= c << 24;
 
-            if ((request_type[i] & 0x00ffffff) == 0x00aa55ff)
-                running = uartproxy_handle_request(dev, request_type[i]);
-            if (!running)
-                break;
-        }
+	if ((request_type[i] & 0x00ffffff) == 0x00aa55ff)
+	    running = uartproxy_handle_request(dev, request_type[i]);
+	if (!running)
+	    break;
     }
 }

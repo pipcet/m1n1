@@ -182,10 +182,7 @@ static void usb_dev_shutdown(dart_dev_t *dart_dev, dwc3_dev_t *usb_dev)
 
 int usb_init(void)
 {
-    if (usb_bringup(0, &usb_dart_port0, &usb_dwc3_port0) < 0)
-        return -1;
     if (usb_bringup(1, &usb_dart_port1, &usb_dwc3_port1) < 0) {
-        usb_dev_shutdown(usb_dart_port0, usb_dwc3_port0);
         return -1;
     }
 
@@ -194,7 +191,6 @@ int usb_init(void)
 
 void usb_shutdown(void)
 {
-    usb_dev_shutdown(usb_dart_port0, usb_dwc3_port0);
     usb_dev_shutdown(usb_dart_port1, usb_dwc3_port1);
 }
 
@@ -207,7 +203,7 @@ void usb_console_write(const char *bfr, size_t len)
      * we only need to check for port0 since usb_init guarantees
      * that either both ports or no port is up and running
      */
-    if (!usb_dwc3_port0) {
+    if (!usb_dwc3_port1) {
         u32 copy = min(EARLYCON_BUFFER_SIZE - earlycon.offset, len);
 
         memcpy(earlycon.bfr + earlycon.offset, bfr, copy);
@@ -222,14 +218,11 @@ void usb_console_write(const char *bfr, size_t len)
         if (earlycon.overflow) {
             static const char overflow_msg[] =
                 "earlycon: buffer has overflown; some messages above are missing.\n";
-            usb_dwc3_write_unsafe(usb_dwc3_port0, overflow_msg, sizeof(overflow_msg));
             usb_dwc3_write_unsafe(usb_dwc3_port1, overflow_msg, sizeof(overflow_msg));
         }
-        usb_dwc3_write_unsafe(usb_dwc3_port0, earlycon.bfr, earlycon.offset);
         usb_dwc3_write_unsafe(usb_dwc3_port1, earlycon.bfr, earlycon.offset);
         earlycon.flushed = 1;
     }
 
-    usb_dwc3_write_unsafe(usb_dwc3_port0, bfr, len);
     usb_dwc3_write_unsafe(usb_dwc3_port1, bfr, len);
 }
