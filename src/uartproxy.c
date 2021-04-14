@@ -177,12 +177,18 @@ int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
     return running;
 }
 
+#define ARRAYELTS(a) (sizeof(a) / sizeof((a)[0]))
+
 void uartproxy_run(void)
 {
     struct uartproxy_dev devs[] = {
         {
             .ops = &usb_dev_ops,
             .cookie = usb_bringup(1),
+        },
+        {
+            .ops = &usb_dev_ops,
+            .cookie = usb_bringup(0),
         },
     };
     u32 request_type[] = { 0, };
@@ -195,23 +201,28 @@ void uartproxy_run(void)
     reply.checksum = checksum(&reply, REPLY_SIZE - 4);
 
     while (running) {
-	int i = 0;
-	struct uartproxy_dev *dev = &devs[i];
-	if (micros() > timeout_micros)
-	    break;
+	for (size_t i = 0; i < ARRAYELTS(devs); i++) {
+	    struct uartproxy_dev *dev = &devs[i];
+	    if (micros() > timeout_micros)
+		break;
 
-	if (dev->ops->read(dev->cookie, &c, 1) == 0)
-	    continue;
-	request_type[i] >>= 8;
-	request_type[i] |= c << 24;
+	    if (dev->ops->read(dev->cookie, &c, 1) == 0)
+		continue;
+	    request_type[i] >>= 8;
+	    request_type[i] |= c << 24;
 
-	if ((request_type[i] & 0x00ffffff) == 0x00aa55ff) {
-	    timeout_micros = (u64) -1;
-	    running = uartproxy_handle_request(dev, request_type[i]);
+	    if ((request_type[i] & 0x00ffffff) == 0x00aa55ff) {
+		timeout_micros = (u64) -1;
+		running = uartproxy_handle_request(dev, request_type[i]);
+	    }
+	    if (!running)
+		break;
 	}
-	if (!running)
+	if (micros() > timeout_micros)
 	    break;
     }
 
-    usb_dwc3_shutdown(devs[0].cookie);
+    for (size_t i = 0; i < ARRAYELTS(devs); i++) {
+	usb_dwc3_shutdown(devs[i].cookie);
+    }
 }

@@ -149,7 +149,7 @@ void fb_display_logo(void)
 	    if ((x * x + y * y <= 128 * 128 && x * x + y * y >= 112 * 112) ||
 		(x * x + y * y <= 80 * 80 && x * x + y * y >= 48 * 48 &&
 		 (x >= 0 || y * y >= x * x)))
-		fb_set_pixel(fb.width/2 + x, fb.height/2 + y, (rgb_t){ .g = 255 });
+		fb_set_pixel(fb.width/2 + x, fb.height/2 + y, (rgb_t){ .r = 255 });
 	}
 }
 
