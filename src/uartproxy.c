@@ -205,7 +205,7 @@ void uartproxy_run(void)
 
     UartReply reply = {REQ_BOOT};
     reply.checksum = checksum(&reply, REPLY_SIZE - 4);
-    usb_dwc3_write(dev, &reply, REPLY_SIZE);
+    uart_write(&reply, REPLY_SIZE);
 
     while (running) {
         for (int i = 0; i < 3; ++i) {
