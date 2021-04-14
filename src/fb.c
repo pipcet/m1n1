@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
-#include <assert.h>
+#include "assert.h"
 #include "fb.h"
 #include "string.h"
 #include "utils.h"
@@ -162,10 +162,10 @@ void fb_display_logo(void)
 static rgb_t font_get_pixel(u8 c, u32 x, u32 y)
 {
     c -= 0x20;
-    u8 *ptr = &console.font.ptr[c * (console.font.width * console.font.height * 4) +
-                                (y * console.font.width + x) * 4];
+    u8 v =
+        console.font.ptr[c * console.font.width * console.font.height + y * console.font.width + x];
 
-    rgb_t col = {.r = *ptr++, .g = *ptr++, .b = *ptr++};
+    rgb_t col = {.r = v, .g = v, .b = v};
     return col;
 }
 

@@ -11,36 +11,37 @@
 #define DART_CONFIG_LOCK BIT(15)
 
 #define DART_ERROR              0x40
-#define DART_ERROR_DOMAIN_SHIFT 24
-#define DART_ERROR_DOMAIN_MASK  0xf
+#define DART_ERROR_STREAM_SHIFT 24
+#define DART_ERROR_STREAM_MASK  0xf
 #define DART_ERROR_CODE_MASK    0xffffff
 #define DART_ERROR_FLAG         BIT(31)
 #define DART_ERROR_READ_FAULT   BIT(4)
 #define DART_ERROR_WRITE_FAULT  BIT(3)
 #define DART_ERROR_NO_PTE       BIT(2)
-#define DART_ERROR_NO_L1        BIT(1)
-#define DART_ERROR_NO_L0        BIT(0)
+#define DART_ERROR_NO_PMD       BIT(1)
+#define DART_ERROR_NO_TTBR      BIT(0)
 
-#define DART_DOMAIN_SELECT 0x34
+#define DART_STREAM_SELECT 0x34
 
-#define DART_DOMAIN_COMMAND            0x20
-#define DART_DOMAIN_COMMAND_BUSY       BIT(2)
-#define DART_DOMAIN_COMMAND_INVALIDATE BIT(20)
+#define DART_STREAM_COMMAND            0x20
+#define DART_STREAM_COMMAND_BUSY       BIT(2)
+#define DART_STREAM_COMMAND_INVALIDATE BIT(20)
 
-#define DART_DOMAIN_COMMAND_BUSY_TIMEOUT 100
+#define DART_STREAM_COMMAND_BUSY_TIMEOUT 100
 
-#define DART_DEVICE2DOMAIN_MAP 0x80
+#define DART_STREAM_REMAP 0x80
 
 #define DART_ERROR_ADDR_HI 0x54
 #define DART_ERROR_ADDR_LO 0x50
 
-#define DART_TCR(domain)          0x100 + 4 * (domain)
+#define DART_TCR(sid)             (0x100 + 4 * (sid))
 #define DART_TCR_TRANSLATE_ENABLE BIT(7)
-#define DART_TCR_BYPASS_ENABLE    BIT(8)
+#define DART_TCR_BYPASS0_ENABLE   BIT(8)
+#define DART_TCR_BYPASS1_ENABLE   BIT(12)
 
-#define DART_TTBR(domain, idx) 0x200 + 16 * (domain) + 4 * (idx)
-#define DART_TTBR_VALID        BIT(31)
-#define DART_TTBR_SHIFT        12
+#define DART_TTBR(sid, idx) (0x200 + 16 * (sid) + 4 * (idx))
+#define DART_TTBR_VALID     BIT(31)
+#define DART_TTBR_SHIFT     12
 
 #define DART_PTE_VALID 0b11
 
@@ -53,17 +54,14 @@ struct dart_dev {
 
 static void dart_tlb_invalidate(dart_dev_t *dart)
 {
-    /*
-     * add a DMA barrier here to be safe since we don't exactly know
-     * how the DART reads the pagetables.
-     */
+    write32(dart->regs + DART_STREAM_SELECT, BIT(dart->device));
+
+    /* ensure that the DART can see the updated pagetables before invalidating */
     dma_wmb();
+    write32(dart->regs + DART_STREAM_COMMAND, DART_STREAM_COMMAND_INVALIDATE);
 
-    write32(dart->regs + DART_DOMAIN_SELECT, BIT(dart->device));
-    write32(dart->regs + DART_DOMAIN_COMMAND, DART_DOMAIN_COMMAND_INVALIDATE);
-
-    if (poll32(dart->regs + DART_DOMAIN_COMMAND, DART_DOMAIN_COMMAND_BUSY, 0, 100))
-        printf("dart: DART_DOMAIN_COMMAND_BUSY did not clear.\n");
+    if (poll32(dart->regs + DART_STREAM_COMMAND, DART_STREAM_COMMAND_BUSY, 0, 100))
+        printf("dart: DART_STREAM_COMMAND_BUSY did not clear.\n");
 }
 
 dart_dev_t *dart_init(uintptr_t base, u8 device)

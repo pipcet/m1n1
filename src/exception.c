@@ -258,7 +258,8 @@ void exc_irq(u64 *regs)
 
 void exc_fiq(u64 *regs)
 {
-    uart_puts("Exception: FIQ");
+    const char *m_desc = m_table[mrs(SPSR_EL1) & 0xf];
+    printf("Exception: FIQ (from %s)\n", m_desc ? m_desc : "?");
 
     u64 reg = mrs(CNTP_CTL_EL0);
     if (reg == 0x5) {
@@ -272,16 +273,19 @@ void exc_fiq(u64 *regs)
         msr(CNTV_CTL_EL0, 7L);
     }
 
-    reg = mrs(CNTP_CTL_EL02);
-    if (reg == 0x5) {
-        uart_puts("  PHYS EL02 timer IRQ, masking");
-        msr(CNTP_CTL_EL02, 7L);
+    if (in_el2()) {
+        reg = mrs(CNTP_CTL_EL02);
+        if (reg == 0x5) {
+            uart_puts("  PHYS EL02 timer IRQ, masking");
+            msr(CNTP_CTL_EL02, 7L);
+        }
+        reg = mrs(CNTV_CTL_EL02);
+        if (reg == 0x5) {
+            uart_puts("  VIRT EL02 timer IRQ, masking");
+            msr(CNTV_CTL_EL02, 7L);
+        }
     }
-    reg = mrs(CNTV_CTL_EL02);
-    if (reg == 0x5) {
-        uart_puts("  VIRT EL02 timer IRQ, masking");
-        msr(CNTV_CTL_EL02, 7L);
-    }
+
     reg = mrs(SYS_APL_PMCR0);
     if ((reg & (PMCR0_IMODE_MASK | PMCR0_IACT)) == (PMCR0_IMODE_FIQ | PMCR0_IACT)) {
         uart_puts("  PMC IRQ, masking");

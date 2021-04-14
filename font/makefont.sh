@@ -24,4 +24,4 @@ done
     -depth 8 \
     label:\@- \
     -crop ${width}x$((height*95)) \
-    rgba:$outfile
+    gray:$outfile
