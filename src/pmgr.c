@@ -22,7 +22,7 @@
 
 struct pmgr_device {
     u32 flags;
-    u16 alias;
+    u16 parent;
     u8 unk1[4];
     u8 addr_offset;
     u8 psreg_idx;
@@ -153,7 +153,7 @@ static int pmgr_set_mode_recursive(u16 id, u8 target_mode, int recurse)
                 return 0;
         }
 
-        id = 0;
+        id = device->parent;
     }
 
     return 0;
