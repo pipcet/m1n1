@@ -65,7 +65,7 @@ static u64 __attribute__((noinline)) checksum(void *start, u32 length)
     return sum ^ 0xADDEDBAD;
 }
 
-void uartproxy_run(void)
+void uartproxy_run(dwc3_dev_t *dev)
 {
     int running = 1;
     int c;
@@ -75,24 +75,24 @@ void uartproxy_run(void)
     UartRequest request;
     UartReply reply = {REQ_BOOT};
     reply.checksum = checksum(&reply, REPLY_SIZE - 4);
-    uart_write(&reply, REPLY_SIZE);
+    usb_dwc3_write(dev, &reply, REPLY_SIZE);
 
     while (running) {
-        c = uart_getbyte();
+        c = usb_dwc3_getbyte(dev);
         if (c != 0xFF)
             continue;
-        c = uart_getbyte();
+        c = usb_dwc3_getbyte(dev);
         if (c != 0x55)
             continue;
-        c = uart_getbyte();
+        c = usb_dwc3_getbyte(dev);
         if (c != 0xAA)
             continue;
-        c = uart_getbyte();
+        c = usb_dwc3_getbyte(dev);
         if (c < 0)
             continue;
         memset(&request, 0, sizeof(request));
         request.type = 0x00AA55FF | ((c & 0xff) << 24);
-        bytes = uart_read((&request.type) + 1, REQ_SIZE - 4);
+        bytes = usb_dwc3_read(dev, (&request.type) + 1, REQ_SIZE - 4);
         if (bytes != REQ_SIZE - 4)
             continue;
         if (checksum(&(request.type), REQ_SIZE - 4) != request.checksum)
@@ -133,7 +133,7 @@ void uartproxy_run(void)
                     reply.status = ST_XFRERR;
                     break;
                 }
-                bytes = uart_read((void *)request.mrequest.addr, request.mrequest.size);
+                bytes = usb_dwc3_read(dev, (void *)request.mrequest.addr, request.mrequest.size);
                 if (bytes != request.mrequest.size) {
                     reply.status = ST_XFRERR;
                     break;
@@ -148,10 +148,10 @@ void uartproxy_run(void)
                 break;
         }
         reply.checksum = checksum(&reply, REPLY_SIZE - 4);
-        uart_write(&reply, REPLY_SIZE);
+        usb_dwc3_write(dev, &reply, REPLY_SIZE);
 
         if ((request.type == REQ_MEMREAD) && (reply.status == ST_OK)) {
-            uart_write((void *)request.mrequest.addr, request.mrequest.size);
+            usb_dwc3_write(dev, (void *)request.mrequest.addr, request.mrequest.size);
         }
     }
 }

@@ -12,6 +12,8 @@
 #include "string.h"
 #include "uart.h"
 #include "uartproxy.h"
+#include "usb.h"
+#include "usb_dwc3.h"
 #include "utils.h"
 #include "wdt.h"
 #include "xnuboot.h"
@@ -68,7 +70,8 @@ void m1n1_main(void)
     printf("No valid payload found\n");
 
     printf("Running proxy...\n");
-    uartproxy_run();
+    dwc3_dev_t *dev = usb_bringup(0);
+    uartproxy_run(dev);
 
     while (1)
         ;
