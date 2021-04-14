@@ -192,6 +192,7 @@ void uartproxy_run(void)
     };
     u32 request_type[] = { 0, };
 
+    u64 timeout_micros = micros() + 5 * 1000 * 1000;
     int running = 1;
     int c;
 
@@ -201,6 +202,8 @@ void uartproxy_run(void)
     while (running) {
 	int i = 0;
 	struct uartproxy_dev *dev = &devs[i];
+	if (micros() > timeout_micros)
+	    break;
 	if (!dev->ops->can_read(dev->cookie))
 	    continue;
 
@@ -208,8 +211,10 @@ void uartproxy_run(void)
 	request_type[i] >>= 8;
 	request_type[i] |= c << 24;
 
-	if ((request_type[i] & 0x00ffffff) == 0x00aa55ff)
+	if ((request_type[i] & 0x00ffffff) == 0x00aa55ff) {
+	    timeout_micros = (u64) -1;
 	    running = uartproxy_handle_request(dev, request_type[i]);
+	}
 	if (!running)
 	    break;
     }
