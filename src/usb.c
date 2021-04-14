@@ -23,7 +23,6 @@ struct usb_drd_regs {
     uintptr_t drd_regs;
     uintptr_t drd_regs_unk3;
     uintptr_t atc;
-    uintptr_t drd_regs_unk3;
 };
 
 static struct {
