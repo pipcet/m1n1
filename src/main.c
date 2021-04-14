@@ -62,16 +62,21 @@ void m1n1_main(void)
     print_info();
     wdt_disable();
     pmgr_init();
+    usb_init();
 
-    printf("Checking for payloads...\n");
+    while (1) {
+	printf("Running proxy...\n");
+	usb_shutdown();
+	usb_init();
 
-    payload_run();
+	uartproxy_run();
 
-    printf("No valid payload found\n");
+	printf("Checking for payloads...\n");
 
-    printf("Running proxy...\n");
-    dwc3_dev_t *dev = usb_bringup(0);
-    uartproxy_run(dev);
+	payload_run();
+
+	printf("No valid payload found\n");
+    }
 
     while (1)
         ;

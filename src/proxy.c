@@ -362,6 +362,16 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             dart_shutdown((dart_dev_t *)request->args[0]);
             break;
 
+        case P_FB_CONSOLE_DISABLE:
+            fb_console_disable();
+            break;
+        case P_FB_CONSOLE_ENABLE:
+            fb_console_enable();
+            break;
+        case P_FB_SCROLL:
+            fb_console_scroll(request->args[0]);
+            break;
+
         default:
             reply->status = S_BADCMD;
             break;
