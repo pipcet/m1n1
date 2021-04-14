@@ -655,7 +655,7 @@ class M1N1Proxy:
 
 if __name__ == "__main__":
     import serial
-    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyUSB0")
+    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyACM0")
     usbuart = serial.Serial(uartdev, 115200)
     uartif = UartInterface(usbuart, debug=True)
     print("Sending NOP...", end=' ')
