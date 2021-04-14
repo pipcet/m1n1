@@ -153,7 +153,7 @@ static int pmgr_set_mode_recursive(u16 id, u8 target_mode, int recurse)
                 return 0;
         }
 
-        id = device->parent;
+        id = 0;
     }
 
     return 0;
