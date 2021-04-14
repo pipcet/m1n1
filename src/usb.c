@@ -21,6 +21,7 @@ dwc3_dev_t *usb_dwc3_port1;
 
 struct usb_drd_regs {
     uintptr_t drd_regs;
+    uintptr_t drd_regs_unk3;
     uintptr_t atc;
     uintptr_t drd_regs_unk3;
 };
