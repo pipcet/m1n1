@@ -64,6 +64,14 @@ void m1n1_main(void)
     pmgr_init();
     usb_init();
 
+    for (int i = 0; i < 10; i++) {
+	printf("Running proxy...\n");
+
+	uartproxy_run();
+	usb_shutdown();
+	usb_init();
+    }
+
     while (1) {
 	printf("Running proxy...\n");
 	usb_shutdown();
@@ -77,7 +85,4 @@ void m1n1_main(void)
 
 	printf("No valid payload found\n");
     }
-
-    while (1)
-        ;
 }
