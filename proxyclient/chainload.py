@@ -5,6 +5,7 @@ import argparse, pathlib
 parser = argparse.ArgumentParser(description='(Linux) kernel loader for m1n1')
 parser.add_argument('payload', type=pathlib.Path)
 parser.add_argument('-1', '--el1', action="store_true")
+parser.add_argument('-s', '--smp', action="store_true")
 args = parser.parse_args()
 
 from setup import *
@@ -57,6 +58,16 @@ p.ic_ivau(new_base, memory_size)
 
 entry -= vmin
 entry += new_base
+
+if args.smp:
+    p.smp_start_secondaries()
+    p.smp_call(1, entry - 0x100)
+    p.smp_call(2, entry - 0x100)
+    p.smp_call(3, entry - 0x100)
+    p.smp_call(4, entry - 0x100)
+    p.smp_call(5, entry - 0x100)
+    p.smp_call(6, entry - 0x100)
+    p.smp_call(7, entry - 0x100)
 
 if args.el1:
     print("Setting up EL1 config")
