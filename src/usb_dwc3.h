@@ -16,10 +16,9 @@ void usb_dwc3_handle_events(dwc3_dev_t *dev);
 int usb_dwc3_can_read(dwc3_dev_t *dev);
 int usb_dwc3_can_write(dwc3_dev_t *dev);
 
-u8 usb_dwc3_getbyte(dwc3_dev_t *dev);
-void usb_dwc3_putbyte(dwc3_dev_t *dev, u8 byte);
+size_t usb_dwc3_getbyte(dwc3_dev_t *dev, u8 *);
+size_t usb_dwc3_putbyte(dwc3_dev_t *dev, const u8 *);
 
-void usb_dwc3_write(dwc3_dev_t *dev, const void *buf, size_t count);
+size_t usb_dwc3_write(dwc3_dev_t *dev, const void *buf, size_t count);
 size_t usb_dwc3_read(dwc3_dev_t *dev, void *buf, size_t count);
-
 #endif

@@ -18,8 +18,6 @@
 
 #define PMGR_FLAG_VIRTUAL 0x10
 
-#define PMGR_FIND_DEVICE_EIGNORE -2
-
 struct pmgr_device {
     u32 flags;
     u16 parent;

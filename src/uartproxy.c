@@ -67,16 +67,11 @@ static u64 __attribute__((noinline)) checksum(void *start, u32 length)
     return sum ^ 0xADDEDBAD;
 }
 
-static int uartproxy_uart_can_read(void *cookie)
-{
-    UNUSED(cookie);
-    return uart_can_read();
-}
-
-static void uartproxy_uart_write(void *cookie, const void *buf, size_t count)
+static size_t uartproxy_uart_write(void *cookie, const void *buf, size_t count)
 {
     UNUSED(cookie);
     uart_write(buf, count);
+    return count;
 }
 
 static size_t uartproxy_uart_read(void *cookie, void *buf, size_t count)
@@ -86,8 +81,7 @@ static size_t uartproxy_uart_read(void *cookie, void *buf, size_t count)
 }
 
 struct uartproxy_dev_ops {
-    int (*can_read)(void *);
-    void (*write)(void *, const void *, size_t);
+    size_t (*write)(void *, const void *, size_t);
     size_t (*read)(void *, void *, size_t);
 };
 
@@ -96,13 +90,11 @@ struct uartproxy_dev {
     void *cookie;
 };
 
-const struct uartproxy_dev_ops uart_dev_ops = {.can_read = uartproxy_uart_can_read,
-                                               .write = uartproxy_uart_write,
+const struct uartproxy_dev_ops uart_dev_ops = {.write = uartproxy_uart_write,
                                                .read = uartproxy_uart_read};
 
 const struct uartproxy_dev_ops usb_dev_ops = {
-    .can_read = (int (*)(void *))usb_dwc3_can_read,
-    .write = (void (*)(void *, const void *, size_t))usb_dwc3_write,
+    .write = (size_t(*)(void *, const void *, size_t))usb_dwc3_write,
     .read = (size_t(*)(void *, void *, size_t))usb_dwc3_read};
 
 int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
@@ -116,7 +108,9 @@ int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
 
     memset(&request, 0, sizeof(request));
     request.type = type;
-    bytes = dev->ops->read(dev->cookie, (&request.type) + 1, REQ_SIZE - 4);
+    do
+	bytes = dev->ops->read(dev->cookie, (&request.type) + 1, REQ_SIZE - 4);
+    while (bytes == 0);
     if (bytes != REQ_SIZE - 4)
         return 1;
     if (checksum(&(request.type), REQ_SIZE - 4) != request.checksum)
@@ -157,8 +151,9 @@ int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
                 reply.status = ST_XFRERR;
                 break;
             }
-            bytes =
-                dev->ops->read(dev->cookie, (void *)request.mrequest.addr, request.mrequest.size);
+            do
+		bytes = dev->ops->read(dev->cookie, (void *)request.mrequest.addr, request.mrequest.size);
+	    while (bytes == 0);
             if (bytes != request.mrequest.size) {
                 reply.status = ST_XFRERR;
                 break;
@@ -187,7 +182,7 @@ void uartproxy_run(void)
     struct uartproxy_dev devs[] = {
         {
             .ops = &usb_dev_ops,
-            .cookie = usb_dwc3_port1,
+            .cookie = usb_bringup(1),
         },
     };
     u32 request_type[] = { 0, };
@@ -204,10 +199,9 @@ void uartproxy_run(void)
 	struct uartproxy_dev *dev = &devs[i];
 	if (micros() > timeout_micros)
 	    break;
-	if (!dev->ops->can_read(dev->cookie))
-	    continue;
 
-	dev->ops->read(dev->cookie, &c, 1);
+	if (dev->ops->read(dev->cookie, &c, 1) == 0)
+	    continue;
 	request_type[i] >>= 8;
 	request_type[i] |= c << 24;
 
@@ -218,4 +212,6 @@ void uartproxy_run(void)
 	if (!running)
 	    break;
     }
+
+    usb_dwc3_shutdown(devs[0].cookie);
 }

@@ -958,37 +958,46 @@ void usb_dwc3_shutdown(dwc3_dev_t *dev)
     free(dev);
 }
 
-u8 usb_dwc3_getbyte(dwc3_dev_t *dev)
+size_t usb_dwc3_getbyte(dwc3_dev_t *dev, u8 *byte)
 {
-    u8 c;
-    while (ringbuffer_read(&c, 1, dev->host2device) < 1)
+    if (ringbuffer_read(byte, 1, dev->host2device) < 1) {
         usb_dwc3_handle_events(dev);
-    return c;
+	return 0;
+    }
+    return 1;
 }
 
-void usb_dwc3_putbyte(dwc3_dev_t *dev, u8 byte)
+size_t usb_dwc3_putbyte(dwc3_dev_t *dev, const u8 *byte)
 {
-    while (ringbuffer_write(&byte, 1, dev->device2host) < 1)
+    if (ringbuffer_write(byte, 1, dev->device2host) < 1) {
         usb_dwc3_handle_events(dev);
+	return 0;
+    }
+    return 1;
 }
 
-void usb_dwc3_write(dwc3_dev_t *dev, const void *buf, size_t count)
+size_t usb_dwc3_write(dwc3_dev_t *dev, const void *buf, size_t count)
 {
+    size_t sent = (size_t)-1;
     const u8 *p = buf;
 
-    while (count--)
-        usb_dwc3_putbyte(dev, *p++);
+    while (++sent < count)
+	while (usb_dwc3_putbyte(dev, p + sent) <= 0)
+	    if (!sent)
+		return 0;
+
+    return sent;
 }
 
 size_t usb_dwc3_read(dwc3_dev_t *dev, void *buf, size_t count)
 {
+    size_t received = (size_t)-1;
     u8 *p = buf;
-    size_t recvd = 0;
 
-    while (count--) {
-        *p++ = usb_dwc3_getbyte(dev);
-        recvd++;
-    }
+    while (++received < count)
+	while (usb_dwc3_getbyte(dev, p + received) <= 0)
+	    if (!received)
+		return 0;
 
-    return recvd;
+    return received;
 }

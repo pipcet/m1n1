@@ -95,10 +95,10 @@ typedef enum {
     P_TUNABLES_APPLY_LOCAL,
     P_TUNABLES_APPLY_LOCAL_ADDR,
 
-    P_DART_INIT = 0xb00, // DART iommu ops
+    P_DART_INIT = 0xb00,
+    P_DART_SHUTDOWN,
     P_DART_MAP,
     P_DART_UNMAP,
-    P_DART_SHUTDOWN,
 
 } ProxyOp;
 
