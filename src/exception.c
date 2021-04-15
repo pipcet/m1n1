@@ -199,7 +199,6 @@ void exc_sync(u64 *regs)
 
     if (!(exc_guard & GUARD_SILENT)) {
         print_regs(regs, el12);
-	mdelay(10000);
     }
 
     switch (exc_guard & GUARD_TYPE_MASK) {
