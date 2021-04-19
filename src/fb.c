@@ -2,14 +2,14 @@
 
 #include "assert.h"
 #include "fb.h"
+#include "iodev.h"
 #include "string.h"
+#include "types.h"
 #include "utils.h"
 #include "xnuboot.h"
 
 #define FB_DEPTH_FLAG_RETINA 0x10000
 #define FB_DEPTH_MASK        0xff
-
-#define EARLYCON_BUFFER_SIZE SZ_2K
 
 fb_t fb;
 
@@ -34,14 +34,7 @@ static struct {
     } margin;
 
     int initialized;
-    int disabled;
-} console = {.initialized = 0, .disabled = 0};
-
-static struct {
-    char bfr[EARLYCON_BUFFER_SIZE];
-    u32 offset;
-    u32 overflow;
-} earlycon = {.offset = 0, .overflow = 0};
+} console = {.initialized = 0};
 
 extern u8 _binary_build_font_bin_start[];
 extern u8 _binary_build_font_retina_bin_start[];
@@ -105,12 +98,6 @@ void fb_init(void)
 
     for (u32 row = 0; row < console.cursor.max_row; ++row)
         fb_clear_font_row(row);
-
-    fb_console_write(earlycon.bfr, earlycon.offset);
-    if (earlycon.overflow) {
-        printf("\nearlycon: WARNING: overflowed earlycon buffer, there are likely missing messages "
-               "above.\n");
-    }
 
     printf("fb console: max rows %d, max cols %d\n", console.cursor.max_row,
            console.cursor.max_col);
@@ -208,33 +195,45 @@ void fb_console_scroll(u32 n)
     console.cursor.row -= n;
 }
 
-void fb_console_write(const char *bfr, size_t len)
+void fb_console_reserve_lines(u32 n)
 {
-    if (!is_primary_core())
-        return;
-    if (console.disabled)
-        return;
-    if (!console.initialized) {
-        u32 copy = min(EARLYCON_BUFFER_SIZE - earlycon.offset, len);
+    if ((console.cursor.max_row - console.cursor.row) <= n)
+        fb_console_scroll(1 + n - (console.cursor.max_row - console.cursor.row));
+}
 
-        memcpy(earlycon.bfr + earlycon.offset, bfr, copy);
-        earlycon.offset += copy;
+ssize_t fb_console_write(const char *bfr, size_t len)
+{
+    ssize_t wrote = 0;
 
-        if (copy != len)
-            earlycon.overflow = 1;
-        return;
+    if (!console.initialized)
+        return 0;
+
+    while (len--) {
+        fb_putchar(*bfr++);
+        wrote++;
     }
 
-    while (len--)
-        fb_putchar(*bfr++);
+    return wrote;
 }
 
-void fb_console_enable(void)
+static bool fb_console_iodev_can_write(void *opaque)
 {
-    console.disabled = 0;
+    UNUSED(opaque);
+    return console.initialized;
 }
 
-void fb_console_disable(void)
+static ssize_t fb_console_iodev_write(void *opaque, const void *buf, size_t len)
 {
-    console.disabled = 1;
+    UNUSED(opaque);
+    return fb_console_write(buf, len);
 }
+
+const struct iodev_ops iodev_fb_ops = {
+    .can_write = fb_console_iodev_can_write,
+    .write = fb_console_iodev_write,
+};
+
+struct iodev iodev_fb = {
+    .ops = &iodev_fb_ops,
+    .usage = USAGE_CONSOLE,
+};

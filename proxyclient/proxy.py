@@ -75,7 +75,7 @@ class UartInterface:
     ST_BADCMD = -1
     ST_INVAL = -2
     ST_XFERERR = -3
-    ST_CRCERR = -4
+    ST_CSUMERR = -4
 
     CMD_LEN = 56
     REPLY_LEN = 36
@@ -134,12 +134,15 @@ class UartInterface:
             sys.stdout.write(chr(c))
             sys.stdout.flush()
 
-    def ttymode(self):
-        tout = self.dev.timeout
-        self.tty_enable = True
-        self.dev.timeout = None
+    def ttymode(self, dev=None):
+        if dev is None:
+            dev = self.dev
 
-        term = Miniterm(self.dev, eol='cr')
+        tout = dev.timeout
+        self.tty_enable = True
+        dev.timeout = None
+
+        term = Miniterm(dev, eol='cr')
         term.exit_character = chr(0x1d)  # GS/CTRL+]
         term.menu_character = chr(0x14)  # Menu: CTRL+T
         term.raw = True
@@ -157,7 +160,7 @@ class UartInterface:
         term.join()
         term.close()
 
-        self.dev.timeout = tout
+        dev.timeout = tout
         self.tty_enable = False
 
     def reply(self, cmd):
@@ -200,11 +203,14 @@ class UartInterface:
                     raise UartRemoteError("Reply error: Invalid argument")
                 elif status == self.ST_XFERERR:
                     raise UartRemoteError("Reply error: Data transfer failed")
-                elif status == self.ST_CRCERR:
+                elif status == self.ST_CSUMERR:
                     raise UartRemoteError("Reply error: Data checksum failed")
                 else:
                     raise UartRemoteError("Reply error: Unknown error (%d)"%status)
             return data
+
+    def wait_boot(self):
+        self.reply(self.REQ_BOOT)
 
     def nop(self):
         self.cmd(self.REQ_NOP)
@@ -250,7 +256,7 @@ class UartInterface:
             chexdump(data)
         ccsum = self.checksum(data)
         if checksum != ccsum:
-            raise UartCRCError("Reply data checksum error: Expected 0x%08x, got 0x%08x"%(checksum, ccsum))
+            raise UartChecksumError("Reply data checksum error: Expected 0x%08x, got 0x%08x"%(checksum, ccsum))
         return data
 
     def readstruct(self, addr, stype):
@@ -259,10 +265,13 @@ class UartInterface:
 class ProxyError(RuntimeError):
     pass
 
-class ProxyCMDError(ProxyError):
+class ProxyReplyError(ProxyError):
     pass
 
 class ProxyRemoteError(ProxyError):
+    pass
+
+class ProxyCommandError(ProxyRemoteError):
     pass
 
 class AlignmentError(Exception):
@@ -283,12 +292,19 @@ class M1N1Proxy:
     P_GET_EXC_COUNT = 0x008
     P_EL0_CALL = 0x009
     P_EL1_CALL = 0x00a
+    P_VECTOR = 0x00b
 
     GUARD_OFF = 0
     GUARD_SKIP = 1
     GUARD_MARK = 2
     GUARD_RETURN = 3
     GUARD_SILENT = 0x100
+
+    IODEV_UART = 0
+    IODEV_FB = 1
+
+    USAGE_CONSOLE = (1 << 0)
+    USAGE_UARTPROXY = (1 << 1)
 
     P_WRITE64 = 0x100
     P_WRITE32 = 0x101
@@ -359,27 +375,26 @@ class M1N1Proxy:
     P_PMGR_ADT_CLOCKS_ENABLE = 0x802
     P_PMGR_ADT_CLOCKS_DISABLE = 0x803
 
-    P_FB_CONSOLE_DISABLE = 0x900
-    P_FB_CONSOLE_ENABLE = 0x901
-    P_FB_SCROLL = 0x902
+    P_IODEV_SET_USAGE = 0x900
+    P_IODEV_CAN_READ = 0x901
+    P_IODEV_CAN_WRITE = 0x902
+    P_IODEV_READ = 0x903
+    P_IODEV_WRITE = 0x904
 
     P_TUNABLES_APPLY_GLOBAL = 0xa00
     P_TUNABLES_APPLY_LOCAL = 0xa01
 
     P_DART_INIT = 0xb00
-    P_DART_MAP = 0xb01
-    P_DART_UNMAP = 0xb02
-    P_DART_SHUTDOWN = 0xb03
-
-    P_FB_CONSOLE_DISABLE = 0x900
-    P_FB_CONSOLE_ENABLE = 0x901
-    P_FB_SCROLL = 0x902
+    P_DART_SHUTDOWN = 0xb01
+    P_DART_MAP = 0xb02
+    P_DART_UNMAP = 0xb03
 
     def __init__(self, iface, debug=False):
         self.debug = debug
         self.iface = iface
+        self.heap = None
 
-    def request(self, opcode, *args, reboot=False, signed=False, no_reply=False, pre_reply=None):
+    def _request(self, opcode, *args, reboot=False, signed=False, no_reply=False, pre_reply=None):
         if len(args) > 6:
             raise ValueError("Too many arguments")
         args = list(args) + [0] * (6 - len(args))
@@ -396,13 +411,34 @@ class M1N1Proxy:
         if reboot:
             return
         if rop != opcode:
-            raise ProxyCMDError("Reply opcode mismatch: Expected 0x%08x, got 0x%08x"%(opcode,rop))
+            raise ProxyReplyError("Reply opcode mismatch: Expected 0x%08x, got 0x%08x"%(opcode,rop))
         if status != self.S_OK:
             if status == self.S_BADCMD:
-                raise ProxyRemoteError("Reply error: Bad Command")
+                raise ProxyCommandError("Reply error: Bad Command")
             else:
                 raise ProxyRemoteError("Reply error: Unknown error (%d)"%status)
         return retval
+
+    def request(self, opcode, *args, **kwargs):
+        free = []
+        args = list(args)
+        args2 = []
+        for i, arg in enumerate(args):
+            if isinstance(arg, str):
+                arg = arg.encode("utf-8") + b"\0"
+            if isinstance(arg, bytes) and self.heap:
+                p = self.heap.malloc(len(arg))
+                free.append(p)
+                self.iface.writemem(p, arg)
+                if (i < (len(args) - 1)) and args[i + 1] is None:
+                    args[i + 1] = len(arg)
+                arg = p
+            args2.append(arg)
+        try:
+            return self._request(opcode, *args2, **kwargs)
+        finally:
+            for i in free:
+                self.heap.free(i)
 
     def nop(self):
         self.request(self.P_NOP)
@@ -415,11 +451,18 @@ class M1N1Proxy:
     def reboot(self, addr, *args, el1=False):
         if len(args) > 4:
             raise ValueError("Too many arguments")
-        self.request(self.P_EL1_CALL if el1 else self.P_CALL, addr, *args, reboot=True)
-    def vector(self, addr, *args, el1=False):
-        if len(args) > 4:
-            raise ValueError("Too many arguments")
-        self.request(self.P_EL1_CALL if el1 else self.P_CALL, addr, *args, no_reply=True)
+        if el1:
+            self.request(self.P_EL1_CALL, addr, *args, no_reply=True)
+        else:
+            try:
+                self.request(self.P_VECTOR, addr, *args)
+                self.iface.wait_boot()
+            except ProxyCommandError: # old m1n1 does not support P_VECTOR
+                try:
+                    self.mmu_shutdown()
+                except ProxyCommandError: # older m1n1 does not support MMU
+                    pass
+                self.request(self.P_CALL, addr, *args, reboot=True)
     def get_bootargs(self):
         return self.request(self.P_GET_BOOTARGS)
     def get_base(self):
@@ -617,9 +660,9 @@ class M1N1Proxy:
         self.request(self.P_FREE, ptr)
 
     def kboot_boot(self, kernel):
-        self.request(self.P_KBOOT_BOOT, kernel, no_reply=True)
-    def kboot_set_bootargs(self, ba_p):
-        self.request(self.P_KBOOT_SET_BOOTARGS, ba_p)
+        self.request(self.P_KBOOT_BOOT, kernel)
+    def kboot_set_bootargs(self, bootargs):
+        self.request(self.P_KBOOT_SET_BOOTARGS, bootargs)
     def kboot_set_initrd(self, base, size):
         self.request(self.P_KBOOT_SET_INITRD, base, size)
     def kboot_prepare_dt(self, dt_addr):
@@ -634,6 +677,17 @@ class M1N1Proxy:
     def pmgr_adt_clocks_disable(self, path):
         return self.request(self.P_PMGR_ADT_CLOCKS_DISABLE, path)
 
+    def iodev_set_usage(self, iodev, usage):
+        return self.request(self.P_IODEV_SET_USAGE, iodev, usage)
+    def iodev_can_read(self, iodev):
+        return self.request(self.P_IODEV_CAN_READ, iodev)
+    def iodev_can_write(self, iodev):
+        return self.request(self.P_IODEV_CAN_WRITE, iodev)
+    def iodev_read(self, iodev, buf, size=None):
+        return self.request(self.P_IODEV_READ, iodev, buf, size)
+    def iodev_write(self, iodev, buf, size=None):
+        return self.request(self.P_IODEV_WRITE, iodev, buf, size)
+
     def tunables_apply_global(self, path, prop):
         return self.request(self.P_TUNABLES_APPLY_GLOBAL, path, prop)
     def tunables_apply_local(self, path, prop, reg_offset):
@@ -641,32 +695,18 @@ class M1N1Proxy:
     def tunables_apply_local_addr(self, path, prop, base):
         return self.request(self.P_TUNABLES_APPLY_LOCAL, path, prop, base)
 
-    def fb_console_disable(self):
-        self.request(self.P_FB_CONSOLE_DISABLE)
-    def fb_console_enable(self):
-        self.request(self.P_FB_CONSOLE_ENABLE)
-    def fb_console_scroll(self, n):
-        self.request(self.P_FB_SCROLL, n)
-
-    def dart_init(self, regs, device):
-        return self.request(self.P_DART_INIT, regs, device)
-    def dart_map(self, dart, iova, buffer, length):
-        return self.request(self.P_DART_MAP, dart, iova, buffer, length)
-    def dart_unmap(self, dart, iova, length):
-        self.request(self.P_DART_UNMAP, dart, iova, length)
+    def dart_init(self, base, sid):
+        return self.request(self.P_DART_INIT, base, sid)
     def dart_shutdown(self, dart):
-        self.request(self.P_DART_SHUTDOWN, dart)
-
-    def fb_console_disable(self):
-        self.request(self.P_FB_CONSOLE_DISABLE)
-    def fb_console_enable(self):
-        self.request(self.P_FB_CONSOLE_ENABLE)
-    def fb_console_scroll(self, n):
-        self.request(self.P_FB_SCROLL, n)
+        return self.request(self.P_DART_SHUTDOWN, dart)
+    def dart_map(self, dart, iova, bfr, len):
+        return self.request(self.P_DART_MAP, dart, iova, bfr, len)
+    def dart_unmap(self, dart, iova, len):
+        return self.request(self.P_DART_UNMAP, dart, iova, len)
 
 if __name__ == "__main__":
     import serial
-    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyACM0")
+    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyUSB0")
     usbuart = serial.Serial(uartdev, 115200)
     uartif = UartInterface(usbuart, debug=True)
     print("Sending NOP...", end=' ')

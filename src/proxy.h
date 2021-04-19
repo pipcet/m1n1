@@ -17,6 +17,7 @@ typedef enum {
     P_GET_EXC_COUNT,
     P_EL0_CALL,
     P_EL1_CALL,
+    P_VECTOR,
 
     P_WRITE64 = 0x100, // Generic register functions
     P_WRITE32,
@@ -87,9 +88,11 @@ typedef enum {
     P_PMGR_ADT_CLOCKS_ENABLE,
     P_PMGR_ADT_CLOCKS_DISABLE,
 
-    P_FB_CONSOLE_DISABLE = 0x900, // framebuffer console ops
-    P_FB_CONSOLE_ENABLE,
-    P_FB_SCROLL,
+    P_IODEV_SET_USAGE = 0x900,
+    P_IODEV_CAN_READ,
+    P_IODEV_CAN_WRITE,
+    P_IODEV_READ,
+    P_IODEV_WRITE,
 
     P_TUNABLES_APPLY_GLOBAL = 0xa00,
     P_TUNABLES_APPLY_LOCAL,
@@ -104,8 +107,6 @@ typedef enum {
 
 #define S_OK     0
 #define S_BADCMD -1
-
-typedef u64(callfunc)(u64, u64, u64, u64);
 
 typedef struct {
     u64 opcode;

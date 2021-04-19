@@ -8,6 +8,7 @@ parser.add_argument('dtb', type=pathlib.Path)
 parser.add_argument('initramfs', nargs='?', type=pathlib.Path)
 parser.add_argument('--compression', choices=['auto', 'none', 'gz', 'xz'], default='auto')
 parser.add_argument('-b', '--bootargs', type=str, metavar='"boot arguments"')
+parser.add_argument('-t', '--tty', type=str)
 args = parser.parse_args()
 
 from setup import *
@@ -32,12 +33,8 @@ else:
     initramfs_size = 0
 
 if args.bootargs is not None:
-    bootargs = bytes(args.bootargs, encoding="utf-8")
     print('Setting boot args: "{}"'.format(args.bootargs))
-    bootargs_addr = u.malloc(len(bootargs) + 1)
-    iface.writemem(bootargs_addr, bootargs, len(bootargs))
-    p.memset8(bootargs_addr + len(bootargs) , 0, 1)
-    p.kboot_set_bootargs(bootargs_addr)
+    p.kboot_set_bootargs(args.bootargs)
 
 if args.compression != 'none':
     compressed_size = len(payload)
@@ -102,5 +99,11 @@ daif = 0xc0
 u.msr(DAIF, daif)
 print("DAIF: %x" % daif)
 
+tty_dev = None
+if args.tty is not None:
+    tty_dev = serial.Serial(args.tty)
+    tty_dev.reset_input_buffer()
+
 p.kboot_boot(kernel_base)
-iface.ttymode()
+
+iface.ttymode(tty_dev)

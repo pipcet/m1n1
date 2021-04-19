@@ -3,13 +3,14 @@
 #include "proxy.h"
 #include "dart.h"
 #include "exception.h"
-#include "fb.h"
 #include "heapblock.h"
+#include "iodev.h"
 #include "kboot.h"
 #include "malloc.h"
 #include "memory.h"
 #include "pmgr.h"
 #include "smp.h"
+#include "string.h"
 #include "tunables.h"
 #include "types.h"
 #include "uart.h"
@@ -23,8 +24,6 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
 {
     enum exc_guard_t guard_save = exc_guard;
 
-    callfunc *f;
-
     reply->opcode = request->opcode;
     reply->status = S_OK;
     reply->retval = 0;
@@ -33,11 +32,12 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             break;
         case P_EXIT:
             return 0;
-        case P_CALL:
-            f = (callfunc *)request->args[0];
+        case P_CALL: {
+            generic_func *f = (generic_func *)request->args[0];
             reply->retval =
                 f(request->args[1], request->args[2], request->args[3], request->args[4]);
             break;
+        }
         case P_GET_BOOTARGS:
             reply->retval = boot_args_addr;
             break;
@@ -68,15 +68,17 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             exc_count = 0;
             break;
         case P_EL0_CALL:
-            f = (callfunc *)request->args[0];
             reply->retval = el0_call((void *)request->args[0], request->args[1], request->args[2],
                                      request->args[3], request->args[4]);
             break;
         case P_EL1_CALL:
-            f = (callfunc *)request->args[0];
             reply->retval = el1_call((void *)request->args[0], request->args[1], request->args[2],
                                      request->args[3], request->args[4]);
             break;
+        case P_VECTOR:
+            next_stage.entry = (generic_func *)request->args[0];
+            memcpy(next_stage.args, &request->args[1], 4 * sizeof(u64));
+            return 0;
 
         case P_WRITE64:
             exc_guard = GUARD_SKIP;
@@ -301,7 +303,8 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             break;
 
         case P_KBOOT_BOOT:
-            kboot_boot((void *)request->args[0]);
+            if (kboot_boot((void *)request->args[0]) == 0)
+                return 0;
             break;
         case P_KBOOT_SET_BOOTARGS:
             kboot_set_bootargs((void *)request->args[0]);
@@ -326,6 +329,24 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             reply->retval = pmgr_adt_clocks_disable((const char *)request->args[0]);
             break;
 
+        case P_IODEV_SET_USAGE:
+            iodev_set_usage(request->args[0], request->args[1]);
+            break;
+        case P_IODEV_CAN_READ:
+            reply->retval = iodev_can_read(request->args[0]);
+            break;
+        case P_IODEV_CAN_WRITE:
+            reply->retval = iodev_can_write(request->args[0]);
+            break;
+        case P_IODEV_READ:
+            reply->retval =
+                iodev_read(request->args[0], (void *)request->args[1], request->args[2]);
+            break;
+        case P_IODEV_WRITE:
+            reply->retval =
+                iodev_write(request->args[0], (void *)request->args[1], request->args[2]);
+            break;
+
         case P_TUNABLES_APPLY_GLOBAL:
             reply->retval = tunables_apply_global((const char *)request->args[0],
                                                   (const char *)request->args[1]);
@@ -337,16 +358,6 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
         case P_TUNABLES_APPLY_LOCAL_ADDR:
             reply->retval = tunables_apply_local_addr(
                 (const char *)request->args[0], (const char *)request->args[1], request->args[2]);
-            break;
-
-        case P_FB_CONSOLE_DISABLE:
-            fb_console_disable();
-            break;
-        case P_FB_CONSOLE_ENABLE:
-            fb_console_enable();
-            break;
-        case P_FB_SCROLL:
-            fb_console_scroll(request->args[0]);
             break;
 
         case P_DART_INIT:

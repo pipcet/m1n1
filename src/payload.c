@@ -276,7 +276,7 @@ int macho_boot(void *entry, void *secondary_entry)
     panic("macho call returned\n");
 }
 
-void payload_run(void)
+int payload_run(void)
 {
     void *p = _payload_start;
 
@@ -284,7 +284,7 @@ void payload_run(void)
         p = load_one_payload(p, 0);
 
     if (macho_start_pc) {
-	macho_boot(macho_start_pc, macho_start_secondary_pc);
+	return macho_boot(macho_start_pc, macho_start_secondary_pc);
     }
 
     if (kernel && fdt) {
@@ -292,10 +292,11 @@ void payload_run(void)
 
         if (kboot_prepare_dt(fdt)) {
             printf("Failed to prepare FDT!");
-            return;
+            return -1;
         }
 
-        kboot_boot(kernel);
-        printf("Failed to boot kernel!");
+        return kboot_boot(kernel);
     }
+
+    return -1;
 }
