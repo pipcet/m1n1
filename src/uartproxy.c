@@ -77,7 +77,7 @@ struct uartproxy_dev {
     void *cookie;
 };
 
-int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
+void uartproxy_run(void)
 {
     int running = 1;
     size_t bytes;
@@ -167,12 +167,8 @@ int uartproxy_handle_request(struct uartproxy_dev *dev, u32 type)
                 if (reply.mreply.dchecksum != request.mrequest.dchecksum)
                     reply.status = ST_XFRERR;
                 break;
-            }
-            do
-		bytes = dev->ops->read(dev->cookie, (void *)request.mrequest.addr, request.mrequest.size);
-	    while (bytes == 0);
-            if (bytes != request.mrequest.size) {
-                reply.status = ST_XFRERR;
+            default:
+                reply.status = ST_BADCMD;
                 break;
         }
         reply.checksum = checksum(&reply, REPLY_SIZE - 4);
