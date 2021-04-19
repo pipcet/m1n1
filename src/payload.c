@@ -262,9 +262,11 @@ extern void mmu_shutdown(void);
 
 int macho_boot(void *entry, void *secondary_entry)
 {
+#if 0
     smp_start_secondaries();
     for (int i = 0; i < 8; i++)
 	smp_call4(i, secondary_entry, 0, 0, 0, 0);
+#endif
     mmu_shutdown();
     printf("calling macho at %p / %p\n",
 	   entry, secondary_entry);
