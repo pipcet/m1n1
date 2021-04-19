@@ -197,9 +197,8 @@ void exc_sync(u64 *regs)
     sysop("isb");
     sysop("dsb sy");
 
-    if (!(exc_guard & GUARD_SILENT)) {
+    if (!(exc_guard & GUARD_SILENT))
         print_regs(regs, el12);
-    }
 
     switch (exc_guard & GUARD_TYPE_MASK) {
         case GUARD_SKIP:
