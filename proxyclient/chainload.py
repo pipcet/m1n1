@@ -5,7 +5,6 @@ import argparse, pathlib
 parser = argparse.ArgumentParser(description='Mach-O loader for m1n1')
 parser.add_argument('payload', type=pathlib.Path)
 parser.add_argument('-1', '--el1', action="store_true")
-parser.add_argument('-S', '--smp', action="store_true")
 parser.add_argument('-s', '--sepfw', action="store_true")
 args = parser.parse_args()
 
@@ -61,15 +60,6 @@ for cmdi, cmd in enumerate(obj.cmds):
 entry -= vmin
 entry += new_base
 
-if args.smp:
-    p.smp_start_secondaries()
-    p.smp_call(1, entry - 0x100)
-    p.smp_call(2, entry - 0x100)
-    p.smp_call(3, entry - 0x100)
-    p.smp_call(4, entry - 0x100)
-    p.smp_call(5, entry - 0x100)
-    p.smp_call(6, entry - 0x100)
-    p.smp_call(7, entry - 0x100)
 if args.sepfw:
     adt_base = u.ba.devtree - u.ba.virt_base + u.ba.phys_base
     adt_size = u.ba.devtree_size
