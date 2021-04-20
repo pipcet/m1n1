@@ -96,14 +96,16 @@ void uartproxy_run(u64 timeout)
     while (running) {
         for (iodev = 0; iodev < IODEV_MAX;) {
             u8 b;
-            if (micros() - t0 >= timeout)
+            if (micros() - t0 > timeout) {
+		printf("...timed out\n");
                 return;
+	    }
             iodev_handle_events(iodev);
             if (iodev_can_read(iodev) && iodev_read(iodev, &b, 1) == 1) {
+		timeout = (u64)-1;
                 iodev_proxy_buffer[iodev] >>= 8;
                 iodev_proxy_buffer[iodev] |= b << 24;
                 if ((iodev_proxy_buffer[iodev] & 0xffffff) == 0xAA55FF) {
-		    timeout = t0 - 1;
                     break;
 		}
             }

@@ -150,6 +150,7 @@ dwc3_dev_t *usb_bringup(u32 idx)
 }
 
 static struct iodev_ops iodev_usb_ops = {
+    .connected = (bool (*)(void *))usb_dwc3_connected,
     .can_read = (bool (*)(void *))usb_dwc3_can_read,
     .can_write = (bool (*)(void *))usb_dwc3_can_write,
     .read = (ssize_t(*)(void *, void *, size_t))usb_dwc3_read,

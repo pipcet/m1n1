@@ -13,6 +13,7 @@ void usb_dwc3_shutdown(dwc3_dev_t *dev);
 
 void usb_dwc3_handle_events(dwc3_dev_t *dev);
 
+bool usb_dwc3_connected(dwc3_dev_t *dev);
 bool usb_dwc3_can_read(dwc3_dev_t *dev);
 bool usb_dwc3_can_write(dwc3_dev_t *dev);
 

@@ -52,8 +52,9 @@ void run_actions(void)
 
         printf("Running proxy...\n");
 
-        uartproxy_run(5 * 1000 * 1000);
-        usb_shutdown();
+        uartproxy_run(30 * 1000 * 1000);
+        if ((i & 3) == 3)
+	  usb_shutdown();
     }
 
     printf("Checking for payloads...\n");

@@ -14,6 +14,7 @@ typedef enum _iodev_usage_t {
 } iodev_usage_t;
 
 struct iodev_ops {
+    bool (*connected)(void *opaque);
     bool (*can_read)(void *opaque);
     bool (*can_write)(void *opaque);
     ssize_t (*read)(void *opaque, void *buf, size_t length);
@@ -30,6 +31,7 @@ struct iodev {
 
 extern struct iodev *iodevs[IODEV_MAX];
 
+bool iodev_connected(iodev_id_t id);
 bool iodev_can_read(iodev_id_t id);
 bool iodev_can_write(iodev_id_t id);
 ssize_t iodev_read(iodev_id_t id, void *buf, size_t length);

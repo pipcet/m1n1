@@ -125,7 +125,7 @@ if args.el1:
     # Unredirect IRQs/FIQs
     u.msr(HCR_EL2, u.mrs(HCR_EL2) & ~(3 << 3)) # ~(IMO | FMO)
 
-print(f"Jumping to stub at 0x{stub.addr:x}")
+print(f"Jumping to stub at 0x{stub.addr:x}, args 0x{new_base + bootargs_off:x}, 0x{image_addr:x}, 0x{new_base:x}, 0x{image_size:x}")
 
 p.reboot(stub.addr, new_base + bootargs_off, image_addr, new_base, image_size, el1=args.el1)
 

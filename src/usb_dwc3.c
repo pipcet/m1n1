@@ -1157,6 +1157,11 @@ size_t usb_dwc3_read(dwc3_dev_t *dev, void *buf, size_t count)
     return recvd;
 }
 
+bool usb_dwc3_connected(dwc3_dev_t *dev)
+{
+    return dev && dev->ready;
+}
+
 bool usb_dwc3_can_read(dwc3_dev_t *dev)
 {
     if (!dev || !dev->ready)
