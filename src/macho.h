@@ -12,7 +12,7 @@ struct macho_header {
     u32 irrelevant[5];
     u32 cmdsize;
     u32 irrelevant2[2];
-};
+} PACKED;
 
 struct macho_command {
     u32 type;
@@ -34,7 +34,7 @@ struct macho_command {
             u64 unused2[2];
         } segment_64;
     } u;
-};
+} PACKED;
 
 void *macho_load(void *start, size_t size);
 extern int (*macho_boot)(void);
