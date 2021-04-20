@@ -21,7 +21,7 @@ const u8 xz_magic[] = {0xfd, '7', 'z', 'X', 'Z', 0x00};
 const u8 fdt_magic[] = {0xd0, 0x0d, 0xfe, 0xed};
 const u8 kernel_magic[] = {'A', 'R', 'M', 0x64};   // at 0x38
 const u8 cpio_magic[] = {'0', '7', '0', '7', '0'}; // '1' or '2' next
-const u8 macho_magic[] = { 0xcf, 0xfa, 0xed, 0xfe };
+const u8 macho_magic[] = {0xcf, 0xfa, 0xed, 0xfe};
 const u8 empty[] = {0, 0, 0, 0};
 
 struct kernel_header *kernel = NULL;
@@ -180,7 +180,7 @@ int payload_run(void)
         p = load_one_payload(p, 0);
 
     if (macho_boot)
-	return macho_boot();
+        return macho_boot();
 
     if (kernel && fdt) {
         smp_start_secondaries();

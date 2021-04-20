@@ -33,48 +33,48 @@ void *macho_load(void *start, size_t size)
     u64 vmbase = 0;
     u64 vmtotalsize = 0;
     while (command < last_command) {
-	switch (command->type) {
-	case MACHO_COMMAND_UNIX_THREAD:
-	    pc = command->u.unix_thread.pc;
-	    break;
-	case MACHO_COMMAND_SEGMENT_64: {
-	    u64 vmaddr = command->u.segment_64.vmaddr;
-	    u64 vmsize = command->u.segment_64.vmsize;
+        switch (command->type) {
+            case MACHO_COMMAND_UNIX_THREAD:
+                pc = command->u.unix_thread.pc;
+                break;
+            case MACHO_COMMAND_SEGMENT_64: {
+                u64 vmaddr = command->u.segment_64.vmaddr;
+                u64 vmsize = command->u.segment_64.vmsize;
 
-	    if (vmbase == 0)
-		vmbase = vmaddr;
-	    if (vmsize + vmbase - vmaddr > vmtotalsize)
-		vmtotalsize = vmsize + vmaddr - vmbase;
-	    break;
-	}
-	}
-	command = (void *)command + command->size;
+                if (vmbase == 0)
+                    vmbase = vmaddr;
+                if (vmsize + vmbase - vmaddr > vmtotalsize)
+                    vmtotalsize = vmsize + vmaddr - vmbase;
+                break;
+            }
+        }
+        command = (void *)command + command->size;
     }
     void *dest = memalign(0x10000, vmtotalsize);
     memset(dest, 0, vmtotalsize);
-    command = start + 32;
+    command = (void *)(header + 1);
     void *virtpc = NULL;
     while (command < last_command) {
-	switch (command->type) {
-	case MACHO_COMMAND_SEGMENT_64: {
-	    if (vmbase == 0)
-		vmbase = command->u.segment_64.vmaddr;
-	    u64 vmaddr = command->u.segment_64.vmaddr;
-	    u64 vmsize = command->u.segment_64.vmsize;
-	    u64 fileoff = command->u.segment_64.fileoff;
-	    u64 filesize = command->u.segment_64.filesize;
-	    u64 pcoff = pc - vmaddr;
+        switch (command->type) {
+            case MACHO_COMMAND_SEGMENT_64: {
+                if (vmbase == 0)
+                    vmbase = command->u.segment_64.vmaddr;
+                u64 vmaddr = command->u.segment_64.vmaddr;
+                u64 vmsize = command->u.segment_64.vmsize;
+                u64 fileoff = command->u.segment_64.fileoff;
+                u64 filesize = command->u.segment_64.filesize;
+                u64 pcoff = pc - vmaddr;
 
-	    memcpy(dest + vmaddr - vmbase, start + fileoff, filesize);
-	    if (pcoff < vmsize) {
+                memcpy(dest + vmaddr - vmbase, start + fileoff, filesize);
+                if (pcoff < vmsize) {
 
-		if (pcoff < filesize) {
-		    virtpc = dest + vmaddr - vmbase + pcoff;
-		}
-	    }
-	}
-	}
-	command = (void *)command + command->size;
+                    if (pcoff < filesize) {
+                        virtpc = dest + vmaddr - vmbase + pcoff;
+                    }
+                }
+            }
+        }
+        command = (void *)command + command->size;
     }
 
     macho_start_pc = virtpc;
