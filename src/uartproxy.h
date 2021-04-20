@@ -3,6 +3,8 @@
 #ifndef __UARTPROXY_H__
 #define __UARTPROXY_H__
 
-void uartproxy_run(void);
+#include "types.h"
+
+void uartproxy_run(u64 timeout_micros);
 
 #endif

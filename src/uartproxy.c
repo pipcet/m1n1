@@ -77,11 +77,12 @@ struct uartproxy_dev {
     void *cookie;
 };
 
-void uartproxy_run(void)
+void uartproxy_run(u64 timeout)
 {
     int running = 1;
     size_t bytes;
     u64 checksum_val;
+    u64 t0 = micros();
 
     iodev_id_t iodev = IODEV_MAX;
 
@@ -95,6 +96,8 @@ void uartproxy_run(void)
     while (running) {
         for (iodev = 0; iodev < IODEV_MAX;) {
             u8 b;
+	    if (micros() - t0 >= timeout)
+		return;
             iodev_handle_events(iodev);
             if (iodev_can_read(iodev) && iodev_read(iodev, &b, 1) == 1) {
                 iodev_proxy_buffer[iodev] >>= 8;

@@ -52,7 +52,7 @@ void run_actions(void)
 
 	printf("Running proxy...\n");
 
-	uartproxy_run();
+	uartproxy_run(5 * 1000 * 1000);
 	usb_shutdown();
     }
 
