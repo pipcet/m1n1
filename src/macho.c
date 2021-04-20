@@ -8,9 +8,6 @@
 
 #include "libfdt/libfdt.h"
 
-extern u64 boot_args_addr;
-extern void mmu_shutdown(void);
-
 static void (*macho_start_pc)(u64) = NULL;
 int (*macho_boot)(void);
 
