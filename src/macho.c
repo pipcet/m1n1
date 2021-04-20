@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: MIT */
 
 #include "macho.h"
-#include "utils.h"
-
 #include "malloc.h"
 #include "memory.h"
-#include "libfdt/libfdt.h"
+#include "utils.h"
 #include "xnuboot.h"
+
+#include "libfdt/libfdt.h"
 
 extern u64 boot_args_addr;
 extern void mmu_shutdown(void);

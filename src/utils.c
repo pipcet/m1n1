@@ -101,7 +101,7 @@ u64 micros(void)
     static u32 last_val;
     u64 val = read32(AIC_TIMER);
     if (val < last_val) {
-	offset += 0x100000000;
+        offset += 0x100000000;
     }
     last_val = val;
     val += offset;

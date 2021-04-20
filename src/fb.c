@@ -87,12 +87,10 @@ void fb_init(void)
     console.cursor.col = 0;
     console.cursor.row = 0;
 
-    console.cursor.max_row =
-	(fb.height / console.font.height) - 2 * console.margin.rows;
-    console.cursor.max_col =
-        (fb.width / console.font.width - 2 * console.margin.cols);
+    console.cursor.max_row = (fb.height / console.font.height) - 2 * console.margin.rows;
+    console.cursor.max_col = (fb.width / console.font.width - 2 * console.margin.cols);
     if (console.cursor.max_col > 60)
-	console.cursor.max_col = 60;
+        console.cursor.max_col = 60;
 
     console.initialized = 1;
 
@@ -132,12 +130,12 @@ void fb_fill(u32 x, u32 y, u32 w, u32 h, rgb_t color)
 void fb_display_logo(void)
 {
     for (int x = -128; x < 128; x++)
-	for (int y = -128; y < 128; y++) {
-	    if ((x * x + y * y <= 128 * 128 && x * x + y * y >= 112 * 112) ||
-		(x * x + y * y <= 80 * 80 && x * x + y * y >= 48 * 48 &&
-		 (x >= 0 || y * y >= x * x)))
-		fb_set_pixel(fb.width/2 + x, fb.height/2 + y, (rgb_t){ .r = 255 });
-	}
+        for (int y = -128; y < 128; y++) {
+            if ((x * x + y * y <= 128 * 128 && x * x + y * y >= 112 * 112) ||
+                (x * x + y * y <= 80 * 80 && x * x + y * y >= 48 * 48 &&
+                 (x >= 0 || y * y >= x * x)))
+                fb_set_pixel(fb.width / 2 + x, fb.height / 2 + y, (rgb_t){.r = 255});
+        }
 }
 
 static rgb_t font_get_pixel(u8 c, u32 x, u32 y)

@@ -48,12 +48,12 @@ void print_info(void)
 void run_actions(void)
 {
     for (int i = 0; i < 10; i++) {
-	usb_init();
+        usb_init();
 
-	printf("Running proxy...\n");
+        printf("Running proxy...\n");
 
-	uartproxy_run(5 * 1000 * 1000);
-	usb_shutdown();
+        uartproxy_run(5 * 1000 * 1000);
+        usb_shutdown();
     }
 
     printf("Checking for payloads...\n");
@@ -64,7 +64,6 @@ void run_actions(void)
     }
 
     printf("No valid payload found\n");
-
 }
 
 void m1n1_main(void)

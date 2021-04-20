@@ -5,10 +5,10 @@
 #include "heapblock.h"
 #include "kboot.h"
 #include "macho.h"
+#include "malloc.h"
 #include "smp.h"
 #include "utils.h"
 
-#include "malloc.h"
 #include "libfdt/libfdt.h"
 #include "minilzlib/minlzma.h"
 #include "tinf/tinf.h"

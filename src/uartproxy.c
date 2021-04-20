@@ -96,8 +96,8 @@ void uartproxy_run(u64 timeout)
     while (running) {
         for (iodev = 0; iodev < IODEV_MAX;) {
             u8 b;
-	    if (micros() - t0 >= timeout)
-		return;
+            if (micros() - t0 >= timeout)
+                return;
             iodev_handle_events(iodev);
             if (iodev_can_read(iodev) && iodev_read(iodev, &b, 1) == 1) {
                 iodev_proxy_buffer[iodev] >>= 8;
