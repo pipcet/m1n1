@@ -102,8 +102,10 @@ void uartproxy_run(u64 timeout)
             if (iodev_can_read(iodev) && iodev_read(iodev, &b, 1) == 1) {
                 iodev_proxy_buffer[iodev] >>= 8;
                 iodev_proxy_buffer[iodev] |= b << 24;
-                if ((iodev_proxy_buffer[iodev] & 0xffffff) == 0xAA55FF)
+                if ((iodev_proxy_buffer[iodev] & 0xffffff) == 0xAA55FF) {
+		    timeout = t0 - 1;
                     break;
+		}
             }
             iodev++;
             if (iodev == IODEV_MAX)
