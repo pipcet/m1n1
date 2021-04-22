@@ -109,6 +109,9 @@ static int usb_drd_get_regs(const char *phy_path, const char *drd_path, struct u
 
 static void usb_phy_bringup(struct usb_drd_regs *usb_regs)
 {
+  printf("bringing up regs at %p, %p\n",
+	 usb_regs->atc, usb_regs->drd_regs_unk3);
+  mdelay(10000);
     write32(usb_regs->atc + 0x08, 0x01c1000f);
     write32(usb_regs->atc + 0x04, 0x00000003);
     write32(usb_regs->atc + 0x04, 0x00000000);
@@ -135,10 +138,12 @@ dwc3_dev_t *usb_bringup(u32 idx)
     if (pmgr_adt_clocks_enable(usb_drd_paths[idx].drd_path) < 0)
         return NULL;
 
+#if 0
     dart_dev_t *usb_dart =
         usb_dart_init(usb_drd_paths[idx].dart_path, usb_drd_paths[idx].dart_mapper_path);
     if (!usb_dart)
         return NULL;
+#endif
 
     struct usb_drd_regs usb_regs;
     if (usb_drd_get_regs(usb_drd_paths[idx].atc_path, usb_drd_paths[idx].drd_path, &usb_regs) < 0)
@@ -146,7 +151,7 @@ dwc3_dev_t *usb_bringup(u32 idx)
 
     usb_phy_bringup(&usb_regs);
 
-    return usb_dwc3_init(usb_regs.drd_regs, usb_dart);
+    return usb_dwc3_init(usb_regs.drd_regs, NULL);
 }
 
 static struct iodev_ops iodev_usb_ops = {

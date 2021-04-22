@@ -18,11 +18,33 @@ ADTStringList = GreedyRange(CString("ascii"))
 
 ADT2Tuple = Array(2, Int64ul)
 
+class Devices:
+    def parse(val):
+        ret = ""
+        for off in range(0, len(val)-47, 48):
+            dev = val[off:off+48]
+            flags = dev[0:4]
+            parent = dev[4:6]
+            addr_offset = dev[10]
+            psreg_idx = dev[11]
+            devid = dev[26:28]
+            name = dev[32:48]
+            print(len(val))
+            arr = [[Int16ul.parse(devid), Int16ul.parse(parent), Int32ul.parse(flags), [psreg_idx, addr_offset], CString("ascii").parse(name)]]
+            ret += f"{arr}\n"
+        return ret
+
+class Empty:
+    def parse(val):
+        return []
+
 STD_PROPERTIES = {
     "compatible": ADTStringList,
     "model": CString("ascii"),
     "#size-cells": Int32ul,
     "#address-cells": Int32ul,
+    "devices": Devices,
+    "nvram-proxy-data": Empty,
 }
 
 def parse_prop(path, name, v):

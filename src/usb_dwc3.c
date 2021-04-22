@@ -950,6 +950,7 @@ dwc3_dev_t *usb_dwc3_init(uintptr_t regs, dart_dev_t *dart)
     memset(dev->xferbuffer, 0, XFER_BUFFER_SIZE);
     memset(dev->trbs, 0, TRB_BUFFER_SIZE);
 
+    #if 0
     if (dart_map(dev->dart, EVENT_BUFFER_IOVA, dev->evtbuffer,
                  max(DWC3_EVENT_BUFFERS_SIZE, SZ_16K)))
         goto error;
@@ -959,6 +960,7 @@ dwc3_dev_t *usb_dwc3_init(uintptr_t regs, dart_dev_t *dart)
         goto error;
     if (dart_map(dev->dart, XFER_BUFFER_IOVA, dev->xferbuffer, XFER_BUFFER_SIZE))
         goto error;
+    #endif
 
     /* prepare endpoint buffers */
     for (int i = 0; i < MAX_ENDPOINTS; ++i) {
@@ -991,6 +993,10 @@ dwc3_dev_t *usb_dwc3_init(uintptr_t regs, dart_dev_t *dart)
 
     /* disable unused features */
     clear32(dev->regs + DWC3_GCTL, DWC3_GCTL_SCALEDOWN_MASK | DWC3_GCTL_DISSCRAMBLE);
+
+    printf("initialized at %p\n", dev->regs);
+    mdelay(3000);
+    return NULL;
 
     /* switch to device-only mode */
     mask32(dev->regs + DWC3_GCTL, DWC3_GCTL_PRTCAPDIR(DWC3_GCTL_PRTCAP_OTG),

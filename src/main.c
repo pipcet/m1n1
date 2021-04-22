@@ -47,6 +47,8 @@ void print_info(void)
 
 void run_actions(void)
 {
+    usb_init();
+
     printf("Checking for payloads...\n");
 
     if (payload_run() == 0) {
@@ -55,8 +57,6 @@ void run_actions(void)
     }
 
     printf("No valid payload found\n");
-
-    usb_init();
 
     printf("Running proxy...\n");
 
