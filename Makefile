@@ -98,7 +98,7 @@ build/dtb/%.dts: dts/%.dts
 build/dtb/%.dtb: build/dtb/%.dts
 	@echo "  DTC   $@"
 	@mkdir -p "$(dir $@)"
-	@dtc -I dts -i dts $< -o $@
+	@$(DTC) -I dts -i dts $< -o $@
 
 build/%.o: src/%.S
 	@echo "  AS    $@"
