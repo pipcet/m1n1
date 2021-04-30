@@ -114,6 +114,8 @@
 			compatible = "apple,t8103-aic", "apple,aic";
 			#interrupt-cells = <3>;
 			interrupt-controller;
+			#address-cells = <0>;
+			#size-cells = <0>;
 			reg = <0x2 0x3b100000 0x0 0x8000>;
 		};
 
