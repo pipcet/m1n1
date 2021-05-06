@@ -50,7 +50,14 @@ if args.sepfw:
     print(f"Adjusting addresses in ADT...")
     u.adt["chosen"]["memory-map"].SEPFW = (new_base + sepfw_off, sepfw_length)
     u.push_adt()
+    print(f"Copying TrustCache (0x{tc_length:x} bytes) from 0x{tc_start:x}...")
+    p.memcpy8(image_addr + tc_off, tc_start, tc_length)
+    print(f"Adjusting addresses in ADT...")
+    u.adt["chosen"]["memory-map"].TrustCache = (new_base + tc_off, tc_length)
 
+u.adt["chosen"]["memory-map"].BootArgs = (new_base + bootargs_off, 0x4000)
+u.adt["chosen"]["memory-map"].DeviceTree = (u.ba.devtree, u.ba.devtree_size)
+u.push_adt()
 print(f"Setting up bootargs...")
 tba = u.ba.copy()
 
@@ -59,6 +66,7 @@ if args.sepfw:
 else:
     # SEP firmware is in here somewhere, keep top_of_kdata high so we hopefully don't clobber it
     tba.top_of_kernel_data = max(tba.top_of_kernel_data, new_base + image_size)
+tba.top_of_kernel_data = new_base + image_size
 
 iface.writemem(image_addr + bootargs_off, BootArgs.build(tba))
 

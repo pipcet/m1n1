@@ -197,7 +197,7 @@ void dart_unmap(dart_dev_t *dart, uintptr_t iova, size_t len)
 
 void dart_shutdown(dart_dev_t *dart)
 {
-    write32(dart->regs + DART_TCR(dart->device), 0);
+    write32(dart->regs + DART_TCR(dart->device), DART_TCR_BYPASS1_ENABLE | DART_TCR_BYPASS0_ENABLE);
     for (int i = 0; i < 4; ++i)
         write32(dart->regs + DART_TTBR(dart->device, i), 0);
     dart_tlb_invalidate(dart);
