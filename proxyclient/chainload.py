@@ -25,12 +25,15 @@ entry += new_base
 
 if args.sepfw:
     sepfw_start, sepfw_length = u.adt["chosen"]["memory-map"].SEPFW
+    tc_start, tc_length = u.adt["chosen"]["memory-map"].TrustCache
 else:
     sepfw_start, sepfw_length = 0, 0
 
 image_size = align(len(image))
 sepfw_off = image_size
 image_size += align(sepfw_length)
+tc_off = image_size
+image_size += align(tc_length)
 bootargs_off = image_size
 image_size += 0x4000
 
