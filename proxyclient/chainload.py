@@ -55,6 +55,13 @@ if args.sepfw:
     print(f"Adjusting addresses in ADT...")
     u.adt["chosen"]["memory-map"].TrustCache = (new_base + tc_off, tc_length)
 
+del u.adt["cpus"]["cpu1"]
+del u.adt["cpus"]["cpu2"]
+del u.adt["cpus"]["cpu3"]
+del u.adt["cpus"]["cpu4"]
+del u.adt["cpus"]["cpu5"]
+del u.adt["cpus"]["cpu6"]
+del u.adt["cpus"]["cpu7"]
 u.adt["chosen"]["memory-map"].BootArgs = (new_base + bootargs_off, 0x4000)
 u.adt["chosen"]["memory-map"].DeviceTree = (u.ba.devtree, u.ba.devtree_size)
 u.push_adt()
