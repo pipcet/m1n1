@@ -124,8 +124,11 @@ iface.writemem(0xa00020000, f.read(1024 * 1024))
 f = open("m1lli/asm-snippets/fadescreen.c.S.elf.bin", "rb")
 iface.writemem(0xb00000000, f.read(1024 * 1024))
 f = open("build/m1n1.macho", "rb")
-iface.writemem(0xa20000000, f.read())
-p.write64(0xa20000000, u.base)
+iface.writemem(0xb20000000, f.read(1024 * 1024))
+p.write64(0xb20000000, image_addr + bootargs_off)
+
+print(p.read64(0xb20010800))
+# p.smp_call_sync(7, 0xb20010800, image_addr + bootargs_off)
 if args.sepfw:
     time.sleep(1)
     # p.smp_call(1, 0xa00000000)
