@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 /* Fake virtual load address for the mach-o */
-_va_base = 0xFFFFFE0007004000;
+_va_base = 0xFFFFFE0007000000;
 
 _stack_size = 0x20000;
 
@@ -48,7 +48,7 @@ SECTIONS {
 
         /* segment: mach-o structures */
         LONG(0x19); /* type = SEGMENT_64 */
-        LONG(0x48); /* cmdsize */
+        LONG(0x98); /* cmdsize */
         LONG(0x5244485f); /* segname = "_HDR" */
         . += 12;
         QUAD(ADDR(.header) + _va_off); /* vmaddr */
@@ -57,12 +57,33 @@ SECTIONS {
         QUAD(SIZEOF(.header)); /* filesize */
         LONG(PROT_READ); /* maxprot */
         LONG(PROT_READ); /* initprot */
-        LONG(0); /* nsects */
+        LONG(1); /* nsects */
         LONG(0); /* flags */
+
+        LONG(0x5244485f); /* segname = "_HDR" */
+	LONG(0);
+	LONG(0);
+	LONG(0);
+
+        LONG(0x7244485f); /* segname = "_HDR" */
+	LONG(0);
+	LONG(0);
+	LONG(0);
+
+	QUAD(ADDR(.header) + _va_off);
+	QUAD(SIZEOF(.header));
+	LONG(0);
+	LONG(16);
+	LONG(0);
+	LONG(0);
+	LONG(0x400);
+	LONG(0);
+	LONG(0);
+	LONG(0);
 
         /* segment: text */
         LONG(0x19); /* type = SEGMENT_64 */
-        LONG(0x48); /* cmdsize */
+        LONG(0x98); /* cmdsize */
         LONG(0x54584554); /* segname = "TEXT" */
         . += 12;
         QUAD(ADDR(.init) + _va_off); /* vmaddr */
@@ -71,8 +92,29 @@ SECTIONS {
         QUAD(_text_size); /* filesize */
         LONG(PROT_READ | PROT_EXECUTE); /* maxprot */
         LONG(PROT_READ | PROT_EXECUTE); /* initprot */
-        LONG(0); /* nsects */
+        LONG(1); /* nsects */
         LONG(0); /* flags */
+
+        LONG(0x54584554); /* segname = "TEXT" */
+	LONG(0);
+	LONG(0);
+	LONG(0);
+
+        LONG(0x74584554); /* segname = "TEXT" */
+	LONG(0);
+	LONG(0);
+	LONG(0);
+
+	QUAD(ADDR(.init) + _va_off);
+	QUAD(_text_size);
+	LONG(ADDR(.init) - ADDR(.header));
+	LONG(16);
+	LONG(0);
+	LONG(0);
+	LONG(0x400);
+	LONG(0);
+	LONG(0);
+	LONG(0);
 
         /* segment: rodata */
         LONG(0x19); /* type = SEGMENT_64 */
@@ -118,23 +160,23 @@ SECTIONS {
 
         _cmd_end = .;
 
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
         _hdr_end = .;
     } :hdr
     _text_start = .;
-    .init : ALIGN(0x4000) {
+    .init : ALIGN(0x10000) {
         *(.init)
         *(.init.*)
     } :text
-    .text : ALIGN(0x4000) {
+    .text : ALIGN(0x10000) {
         *(.text)
         *(.text.*)
         . = ALIGN(8);
         *(.got.plt)
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
     } :text
     _text_size = . - _text_start;
-    .rodata : ALIGN(0x4000) {
+    .rodata : ALIGN(0x10000) {
         *(.rodata)
         *(.rodata.*)
         . = ALIGN(8);
@@ -151,32 +193,32 @@ SECTIONS {
         *(.rela.data)
         *(.rela.data.*)
         _rela_end = .;
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
     } :rodata
     _rodata_end = .;
     _data_start = .;
-    .data : ALIGN(0x4000) {
+    .data : ALIGN(0x10000) {
         *(.data)
         *(.data.*)
         . = ALIGN(8);
         _got_start = .;
         *(.got)
         _got_end = .;
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
         _file_end = .;
     } :data
-    .bss : ALIGN(0x4000) {
+    .bss : ALIGN(0x10000) {
         _bss_start = .;
         *(.bss)
         *(.bss.*)
         *(.dynbss)
         *(COMMON)
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
         _bss_end = .;
         PROVIDE(_stack_top = .);
         . += _stack_size;
         PROVIDE(_stack_bot = .);
-        . = ALIGN(0x4000);
+        . = ALIGN(0x10000);
     } :data
     _data_size = . - _data_start;
     _end = .;
