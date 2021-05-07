@@ -13,6 +13,8 @@ from tgtypes import BootArgs
 from macho import MachO
 import asm
 
+if args.sepfw:
+    p.smp_start_secondaries()
 macho = MachO(args.payload.read_bytes())
 
 image = macho.prepare_image()
@@ -23,22 +25,22 @@ entry = macho.entry
 entry -= macho.vmin
 entry += new_base
 
+image_size = align(len(image))
 if args.sepfw:
     sepfw_start, sepfw_length = u.adt["chosen"]["memory-map"].SEPFW
     tc_start, tc_length = u.adt["chosen"]["memory-map"].TrustCache
+    sepfw_off = image_size
+    image_size += align(sepfw_length)
+    tc_off = image_size
+    image_size += align(tc_length)
 else:
     sepfw_start, sepfw_length = 0, 0
 
-image_size = align(len(image))
-sepfw_off = image_size
-image_size += align(sepfw_length)
-tc_off = image_size
-image_size += align(tc_length)
 bootargs_off = image_size
 image_size += 0x4000
 
 print(f"Total region size: 0x{image_size:x} bytes")
-image_addr = u.malloc(image_size)
+image_addr = u.malloc(image_size + 1024 * 1024)
 
 print(f"Loading kernel image (0x{len(image):x} bytes)...")
 u.compressed_writemem(image_addr, image, True)
@@ -55,18 +57,21 @@ if args.sepfw:
     print(f"Adjusting addresses in ADT...")
     u.adt["chosen"]["memory-map"].TrustCache = (new_base + tc_off, tc_length)
 
+tba = u.ba.copy()
 del u.adt["cpus"]["cpu1"]
 del u.adt["cpus"]["cpu2"]
 del u.adt["cpus"]["cpu3"]
 del u.adt["cpus"]["cpu4"]
 del u.adt["cpus"]["cpu5"]
 del u.adt["cpus"]["cpu6"]
-del u.adt["cpus"]["cpu7"]
+u.adt["cpus"]["cpu7"].state = "busy"
+u.adt["cpus"].max_cpus = 1
 u.adt["chosen"]["memory-map"].BootArgs = (new_base + bootargs_off, 0x4000)
 u.adt["chosen"]["memory-map"].DeviceTree = (u.ba.devtree, u.ba.devtree_size)
+u.adt["chosen"].dram_size = 0x100000000
+tba.cmdline = "-v cpus=1"
 u.push_adt()
 print(f"Setting up bootargs...")
-tba = u.ba.copy()
 
 if args.sepfw:
     tba.top_of_kernel_data = new_base + image_size
@@ -74,6 +79,9 @@ else:
     # SEP firmware is in here somewhere, keep top_of_kdata high so we hopefully don't clobber it
     tba.top_of_kernel_data = max(tba.top_of_kernel_data, new_base + image_size)
 tba.top_of_kernel_data = new_base + image_size
+# tba.mem_size_actual = 0x200000000
+tba.mem_size_actual = 0x200000000
+tba.mem_size = 0x300000000
 
 iface.writemem(image_addr + bootargs_off, BootArgs.build(tba))
 
@@ -81,8 +89,8 @@ print(f"Copying stub...")
 
 stub = asm.ARMAsm(f"""
 1:
-        ldp x4, x5, [x1], #8
-        stp x4, x5, [x2]
+        ldr x4, [x1], #8
+        str x4, [x2]
         dc cvau, x2
         ic ivau, x2
         add x2, x2, #8
@@ -98,6 +106,36 @@ p.dc_cvau(stub.addr, stub.len)
 p.ic_ivau(stub.addr, stub.len)
 
 print(f"Entry point: 0x{entry:x}")
+
+f = open("m1lli/asm-snippets/actual-vbar-2.S.elf.bin", "rb")
+iface.writemem(0xa00000000, f.read(1024 * 1024))
+f = open("m1lli/asm-snippets/inject3.S.elf.bin", "rb")
+iface.writemem(0xa00002000, f.read(1024 * 1024))
+f = open("m1lli/asm-snippets/reboot-physical.S.elf.bin", "rb")
+iface.writemem(0xa00008000, f.read(1024 * 1024))
+f = open("m1lli/asm-snippets/inject4.c.S.elf.bin", "rb")
+iface.writemem(0xa00020000, f.read(1024 * 1024))
+# p.smp_call(1, 0xa00000000)
+# p.smp_call(2, 0xa00000000)
+# p.smp_call(3, 0xa00000000)
+# p.smp_call(4, 0xa00000000)
+# p.smp_call(5, 0xa00000000)
+# p.smp_call(6, 0xa00000000)
+f = open("m1lli/asm-snippets/fadescreen.c.S.elf.bin", "rb")
+iface.writemem(0xb00000000, f.read(1024 * 1024))
+f = open("build/m1n1.macho", "rb")
+iface.writemem(0xa20000000, f.read())
+p.write64(0xa20000000, u.base)
+if args.sepfw:
+    time.sleep(1)
+    # p.smp_call(1, 0xa00000000)
+    # p.smp_call(2, 0xa00000000)
+    # p.smp_call(3, 0xa00000000)
+    # p.smp_call(4, 0xa00000000)
+    # p.smp_call(5, 0xa00000000)
+    # p.smp_call(6, 0xa00000000)
+    p.smp_call(7, 0xb00000000)
+    time.sleep(1)
 
 if args.call:
     print(f"Shutting down MMU...")

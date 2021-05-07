@@ -344,9 +344,9 @@ void mmu_init(void)
 
 void mmu_shutdown(void)
 {
-    fb_console_reserve_lines(3);
-    printf("MMU: shutting down...\n");
+  //fb_console_reserve_lines(3);
+  //printf("MMU: shutting down...\n");
     write_sctlr(read_sctlr() & ~(SCTLR_I | SCTLR_C | SCTLR_M));
-    printf("MMU: shutdown successful, clearing caches\n");
-    dcsw_op_all(DCSW_OP_DCCISW);
+    //printf("MMU: shutdown successful, clearing caches\n");
+    //dcsw_op_all(DCSW_OP_DCCISW);
 }
