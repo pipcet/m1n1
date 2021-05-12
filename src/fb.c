@@ -79,6 +79,11 @@ void fb_init(void)
     fb.width = cur_boot_args.video.width;
     fb.height = cur_boot_args.video.height;
     fb.depth = cur_boot_args.video.depth & FB_DEPTH_MASK;
+    fb.ptr = (void *)0xbdf438000;
+    fb.width = 2560;
+    fb.height = 1600;
+    fb.stride = 2560;
+    fb.depth = 32;
     printf("fb init: %dx%d (%d) [s=%d] @%p\n", fb.width, fb.height, fb.depth, fb.stride, fb.ptr);
 
     if (cur_boot_args.video.depth & FB_DEPTH_FLAG_RETINA) {

@@ -218,7 +218,8 @@ void exc_sync(u64 *regs)
             break;
         case GUARD_OFF:
         default:
-            flush_and_reboot();
+	  udelay(1000000);
+	  {} //flush_and_reboot();
     }
 
     exc_count++;

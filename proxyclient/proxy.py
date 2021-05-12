@@ -282,20 +282,7 @@ class UartInterface:
         try:
             return self.reply(self.REQ_BOOT)
         except:
-            # Over USB, reboots cause a reconnect
-            self.dev.close()
-            print("Waiting for reconnection... ", end="")
-            sys.stdout.flush()
-            for i in range(100):
-                print(".", end="")
-                sys.stdout.flush()
-                try:
-                    self.dev.open()
-                except serial.serialutil.SerialException:
-                    time.sleep(0.1)
-                else:
-                    break
-            print(" Connected")
+            pass
 
     def nop(self):
         self.cmd(self.REQ_NOP)

@@ -10,6 +10,7 @@
 #include "xnuboot.h"
 
 u64 boot_args_addr;
+u64 base_addr;
 struct boot_args cur_boot_args;
 void *adt;
 
@@ -69,8 +70,8 @@ void dump_boot_args(struct boot_args *ba)
 
 void _start_c(void *boot_args, void *base)
 {
-    UNUSED(base);
     memset64(_bss_start, 0, _bss_end - _bss_start);
+    (base_addr = (u64)base) || (base_addr = (u64)_base);
     uart_putchar('s');
     uart_init();
     uart_putchar('c');
@@ -83,9 +84,6 @@ void _start_c(void *boot_args, void *base)
 
     boot_args_addr = (u64)boot_args;
     memcpy(&cur_boot_args, boot_args, sizeof(cur_boot_args));
-
-    dump_boot_args(&cur_boot_args);
-    printf("\n");
 
     adt =
         (void *)(((u64)cur_boot_args.devtree) - cur_boot_args.virt_base + cur_boot_args.phys_base);

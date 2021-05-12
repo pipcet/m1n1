@@ -46,7 +46,7 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             reply->retval = boot_args_addr;
             break;
         case P_GET_BASE:
-            reply->retval = (u64)_base;
+            reply->retval = (u64)base_addr;
             break;
         case P_SET_BAUD: {
             int cnt = request->args[1];

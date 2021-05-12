@@ -32,5 +32,6 @@ struct boot_args {
 
 extern u64 boot_args_addr;
 extern struct boot_args cur_boot_args;
+extern u64 base_addr;
 
 #endif

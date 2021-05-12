@@ -111,10 +111,11 @@ class ProxyUtils(object):
         return self.adt_data
 
     def push_adt(self):
+        # self.adt["chosen"]["memory-map"].DeviceTree = (self.ba.devtree, 0x5c000)
         self.adt_data = self.adt.build()
         adt_base = self.ba.devtree - self.ba.virt_base + self.ba.phys_base
         adt_size = len(self.adt_data)
-        print(f"Pushing ADT ({adt_size} bytes)...")
+        print(f"Pushing ADT ({adt_size} bytes) to {adt_base:x}...")
         self.iface.writemem(adt_base, self.adt_data)
 
     def print_exception(self, code, ctx):

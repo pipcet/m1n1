@@ -69,17 +69,16 @@ _vectors_start:
 .type _start, @function
 _start:
     mov x19, x0
+    mov x22, x1
 
     mov w0, 'm'
     bl debug_putc
 
     adrp x1, _stack_bot
     mov sp, x1
-
+    stp x19,x22,[sp,-16]!
     mov w0, '1'
     bl debug_putc
-
-    ldr x2, [sp, #-8]
 
     mov w0, 'n'
     bl debug_putc
@@ -100,7 +99,11 @@ _start:
     bl debug_putc
 
     mov x0, x19
-    mov x1, x20
+    mov x1, x22
+    adrp x1, _stack_bot
+    mov sp, x1
+    ldp x0,x1,[sp,-16]!
+    add sp,sp,16
     bl _start_c
     b .
 

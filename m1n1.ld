@@ -73,7 +73,7 @@ SECTIONS {
 	QUAD(ADDR(.header) + _va_off);
 	QUAD(SIZEOF(.header));
 	LONG(0);
-	LONG(16);
+	LONG(0x100000);
 	LONG(0);
 	LONG(0);
 	LONG(0x400);
@@ -108,7 +108,7 @@ SECTIONS {
 	QUAD(ADDR(.init) + _va_off);
 	QUAD(_text_size);
 	LONG(ADDR(.init) - ADDR(.header));
-	LONG(16);
+	LONG(0x100000);
 	LONG(0);
 	LONG(0);
 	LONG(0x400);
@@ -179,7 +179,7 @@ SECTIONS {
     .rodata : ALIGN(0x10000) {
         *(.rodata)
         *(.rodata.*)
-        . = ALIGN(8);
+        . = ALIGN(0x10000);
     } :rodata
     .rela.dyn : {
         _rela_start = .;

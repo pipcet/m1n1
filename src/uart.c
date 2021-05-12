@@ -99,19 +99,18 @@ static bool uart_iodev_can_write(void *opaque)
 static bool uart_iodev_can_read(void *opaque)
 {
     UNUSED(opaque);
-    return read32(UART_BASE + UTRSTAT) & 0x01;
+    return false;
 }
 
 static ssize_t uart_iodev_read(void *opaque, void *buf, size_t len)
 {
     UNUSED(opaque);
-    return uart_read(buf, len);
+    return len;
 }
 
 static ssize_t uart_iodev_write(void *opaque, const void *buf, size_t len)
 {
     UNUSED(opaque);
-    uart_write(buf, len);
     return len;
 }
 

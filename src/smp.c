@@ -150,6 +150,7 @@ void smp_start_secondaries(void)
         if (ADT_GETPROP_ARRAY(adt, node, "cpu-impl-reg", cpu_impl_reg) < 0)
             continue;
 
+	printf("cpu_start_base %p\n", pmgr_reg + CPU_START_OFF);
         smp_start_cpu(i, reg >> 8, reg & 0xff, cpu_impl_reg[0], pmgr_reg + CPU_START_OFF);
     }
 
