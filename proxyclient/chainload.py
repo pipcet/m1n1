@@ -81,7 +81,7 @@ if not args.high:
     del u.adt["cpus"]["cpu6"]
     u.adt["cpus"]["cpu7"].state = "busy"
     u.adt["cpus"].max_cpus = 1
-    u.adt["chosen"]["memory-map"].MemoryMapReserved_0 = (0xa00000000, 0x00000000)
+    # u.adt["chosen"]["memory-map"].MemoryMapReserved_0 = (0xa00000000, 0x0000000)
     u.push_adt()
 tba.cmdline = "-v cpus=1"
 print(f"Setting up bootargs at {image_addr:x} + {bootargs_off:x}, ADT at {tba.devtree}, new_base at {new_base:x}, image_size {image_size:x}")
@@ -94,7 +94,7 @@ else:
 tba.top_of_kernel_data = new_base + image_size
 # tba.mem_size_actual = 0x200000000
 tba.mem_size_actual = 0x000000
-tba.mem_size = 0x100000000
+tba.mem_size = 0x180000000
 print(tba)
 
 iface.writemem(image_addr + bootargs_off, BootArgs.build(tba))
@@ -136,14 +136,14 @@ p.ic_ivau(stub.addr, stub.len)
 
 print(f"Entry point: 0x{entry:x}")
 
-f = open("m1lli/asm-snippets/actual-vbar-2.S.elf.bin", "rb")
-iface.writemem(0xa00000000, f.read(1024 * 1024))
-f = open("m1lli/asm-snippets/inject3.S.elf.bin", "rb")
-iface.writemem(0xa00002000, f.read(1024 * 1024))
-f = open("m1lli/asm-snippets/reboot-physical.S.elf.bin", "rb")
-iface.writemem(0xa00008000, f.read(1024 * 1024))
-f = open("m1lli/asm-snippets/inject4.c.S.elf.bin", "rb")
-iface.writemem(0xa00020000, f.read(1024 * 1024))
+# f = open("m1lli/asm-snippets/actual-vbar-2.S.elf.bin", "rb")
+# iface.writemem(0xa00000000, f.read(1024 * 1024))
+# f = open("m1lli/asm-snippets/inject3.S.elf.bin", "rb")
+# iface.writemem(0xa00002000, f.read(1024 * 1024))
+# f = open("m1lli/asm-snippets/reboot-physical.S.elf.bin", "rb")
+# iface.writemem(0xa00008000, f.read(1024 * 1024))
+# f = open("m1lli/asm-snippets/inject4.c.S.elf.bin", "rb")
+# iface.writemem(0xa00020000, f.read(1024 * 1024))
 # p.smp_call(1, 0xa00000000)
 # p.smp_call(2, 0xa00000000)
 # p.smp_call(3, 0xa00000000)
@@ -151,14 +151,23 @@ iface.writemem(0xa00020000, f.read(1024 * 1024))
 # p.smp_call(5, 0xa00000000)
 # p.smp_call(6, 0xa00000000)
 if args.debug and not args.high:
-    f = open("m1lli/asm-snippets/fadescreen.c.S.elf.bin", "rb")
-    iface.writemem(0xab0000000, f.read())
-    f = open("build/m1n1.macho", "rb")
-    iface.writemem(0xac0000000, f.read())
-    p.write64(0xac0000000, new_base + bootargs_off)
+    if False:
+        f = open("m1lli/asm-snippets/fadescreen.c.S.elf.bin", "rb")
+        iface.writemem(0xab0000000, f.read())
+        f = open("build/m1n1.macho", "rb")
+        iface.writemem(0xac0000000, f.read())
+    elif True:
+        f = open("m1lli/asm-snippets/delay-boot-linux.c.S.elf.bin", "rb")
+        iface.writemem(0xab0000000, f.read())
+        f = open("build/usbparasite.image.macho", "rb")
+        u.compressed_writemem(0xa40000000, f.read(), True)
+    p.write64(0xac0000000, 0xac0000010)
+    p.write64(0xac0000008, new_base)
+    iface.writemem(0xac0000010, BootArgs.build(tba))
 
 if args.debug:
     p.smp_call(7, 0xab0000000)
+    time.sleep(1)
 
 if args.call:
     print(f"Shutting down MMU...")
