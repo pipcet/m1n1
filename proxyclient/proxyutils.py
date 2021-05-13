@@ -111,7 +111,7 @@ class ProxyUtils(object):
         return self.adt_data
 
     def push_adt(self):
-        # self.adt["chosen"]["memory-map"].DeviceTree = (self.ba.devtree, 0x5c000)
+        self.adt["chosen"]["memory-map"].DeviceTree = (self.ba.devtree, 0x5c000)
         self.adt_data = self.adt.build()
         adt_base = self.ba.devtree - self.ba.virt_base + self.ba.phys_base
         adt_size = len(self.adt_data)
