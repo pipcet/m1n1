@@ -111,24 +111,35 @@ stub = asm.ARMAsm(f"""
         sub x3, x3, #8
         cbnz x3, 1b
 
+2:
+        mov x1, #0x3e88
+        movk x1, #0x9000, lsl #16
+        movk x1, #0xb, lsl #32
+        ldr x2, [x1]
+        cbz x2, 2b
+        dsb sy
+        dmb sy
+        isb
+        ic iallu
+        isb
         ldr x1, ={entry}
         br x1
 """, image_addr + image_size)
-if args.high:
+if not args.debug:
     stub = asm.ARMAsm(f"""
-    1:
-            ldr x4, [x1], #8
-            str x4, [x2]
-            dc cvau, x2
-            ic ivau, x2
-            add x2, x2, #8
-            sub x3, x3, #8
-            cbnz x3, 1b
+1:
+        ldr x4, [x1], #8
+        str x4, [x2]
+        dc cvau, x2
+        ic ivau, x2
+        add x2, x2, #8
+        sub x3, x3, #8
+        cbnz x3, 1b
 
-            ldr x1, ={entry}
-            br x1
-    """, image_addr + image_size)
-
+2:
+        ldr x1, ={entry}
+        br x1
+""", image_addr + image_size)
 
 iface.writemem(stub.addr, stub.data)
 p.dc_cvau(stub.addr, stub.len)
@@ -167,8 +178,9 @@ if args.debug and not args.high:
 
 if args.debug:
     p.smp_call(7, 0xab0000000)
-    time.sleep(1)
+    time.sleep(3)
 
+p.write64(0xb90003e88, 0)
 if args.call:
     print(f"Shutting down MMU...")
     try:
