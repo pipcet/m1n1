@@ -40,21 +40,6 @@ static struct {
 extern u8 _binary_build_font_bin_start[];
 extern u8 _binary_build_font_retina_bin_start[];
 
-const struct image logo_128 = {
-    .ptr = (void *)_binary_build_bootlogo_128_bin_start,
-    .width = 128,
-    .height = 128,
-};
-
-const struct image logo_256 = {
-    .ptr = (void *)_binary_build_bootlogo_256_bin_start,
-    .width = 256,
-    .height = 256,
-};
-
-const struct image *logo;
-struct image orig_logo;
-
 static void fb_clear_font_row(u32 row)
 {
     const u32 row_size = (console.margin.cols + console.cursor.max_col) * console.font.width * 4;
@@ -141,21 +126,6 @@ void fb_clear(rgb_t color)
     memset32(fb.ptr, c, fb.stride * fb.height * 4);
 }
 
-void fb_blit_image(u32 x, u32 y, const struct image *img)
-{
-    fb_blit(x, y, img->width, img->height, img->ptr, img->width);
-}
-
-void fb_unblit_image(u32 x, u32 y, struct image *img)
-{
-    fb_unblit(x, y, img->width, img->height, img->ptr, img->width);
-}
-
-void fb_blit_logo(const struct image *logo)
-{
-    fb_blit_image((fb.width - logo->width) / 2, (fb.height - logo->height) / 2, logo);
-}
-
 void fb_display_logo(void)
 {
     for (int x = -128; x < 128; x++)
@@ -163,7 +133,7 @@ void fb_display_logo(void)
             if ((x * x + y * y <= 128 * 128 && x * x + y * y >= 112 * 112) ||
                 (x * x + y * y <= 80 * 80 && x * x + y * y >= 48 * 48 &&
                  (x >= 0 || y * y >= x * x)))
-                fb_set_pixel(fb.width / 2 + x, fb.height / 2 + y, (rgb_t){.r = 255});
+	      fb_set_pixel(fb.width / 2 + x, fb.height / 2 + y, (rgb_t){.r = x + 128, .g = y + 128, .b = (x + y) > 0 ? x + y : 0});
         }
 }
 
@@ -303,22 +273,13 @@ void fb_init(void)
     printf("fb init: %dx%d (%d) [s=%d] @%p\n", fb.width, fb.height, fb.depth, fb.stride, fb.ptr);
 
     if (cur_boot_args.video.depth & FB_DEPTH_FLAG_RETINA) {
-        logo = &logo_256;
         console.font.ptr = _binary_build_font_retina_bin_start;
         console.font.width = 16;
         console.font.height = 32;
     } else {
-        logo = &logo_128;
         console.font.ptr = _binary_build_font_bin_start;
         console.font.width = 8;
         console.font.height = 16;
-    }
-
-    if (!orig_logo.ptr) {
-        orig_logo = *logo;
-        orig_logo.ptr = malloc(orig_logo.width * orig_logo.height * 4);
-        fb_unblit_image((fb.width - orig_logo.width) / 2, (fb.height - orig_logo.height) / 2,
-                        &orig_logo);
     }
 
     console.margin.rows = 2;
@@ -327,8 +288,6 @@ void fb_init(void)
     console.cursor.row = 0;
 
     console.cursor.max_row = (fb.height / console.font.height) - 2 * console.margin.rows;
-    console.cursor.max_col =
-        ((fb.width - logo->width) / 2) / console.font.width - 2 * console.margin.cols;
 
     console.initialized = 1;
 
@@ -344,10 +303,4 @@ void fb_shutdown(bool restore_logo)
         return;
 
     console.initialized = 0;
-    fb_clear_console();
-    if (restore_logo) {
-        fb_restore_logo();
-        free(orig_logo.ptr);
-        orig_logo.ptr = NULL;
-    }
 }
