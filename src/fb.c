@@ -288,6 +288,8 @@ void fb_init(void)
     console.cursor.row = 0;
 
     console.cursor.max_row = (fb.height / console.font.height) - 2 * console.margin.rows;
+    console.cursor.max_col =
+        ((fb.width) / 2 - 128) / console.font.width - 2 * console.margin.cols;
 
     console.initialized = 1;
 
