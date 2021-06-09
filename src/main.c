@@ -101,11 +101,6 @@ void m1n1_main(void)
     printf("Preparing to run next stage at %p...\n", next_stage.entry);
 
     exception_shutdown();
-    usb_iodev_shutdown();
-    mmu_shutdown();
-#ifdef USE_FB
-    fb_shutdown(next_stage.restore_logo);
-#endif
 
     printf("Vectoring to next stage...\n");
 
