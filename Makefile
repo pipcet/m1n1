@@ -98,13 +98,13 @@ build/dtb/%.dtb: build/dtb/%.dts
 	@mkdir -p "$(dir $@)"
 	@$(DTC) -I dts -i dts $< -o $@
 
-build/%.o: src/%.S
+build/%.o: src/%.S build/build_tag.h
 	@echo "  AS    $@"
 	@mkdir -p $(DEPDIR)
 	@mkdir -p "$(dir $@)"
 	@$(AS) -c $(CFLAGS) -Wp,-MMD,$(DEPDIR)/$(*F).d,-MQ,"$@",-MP -o $@ $<
 
-build/%.o: src/%.c
+build/%.o: src/%.c build/build_tag.h
 	@echo "  CC    $@"
 	@mkdir -p $(DEPDIR)
 	@mkdir -p "$(dir $@)"
