@@ -112,11 +112,14 @@ build/%.o: src/%.c build/build_tag.h
 
 build/$(NAME).elf: $(BUILD_OBJS) m1n1.ld
 	@echo "  LD    $@"
+	@mkdir -p "$(dir $@)"
 	@$(LD) $(LDFLAGS) -o $@ $(BUILD_OBJS)
 
 build/$(NAME).macho: build/$(NAME).elf
 	@echo "  MACHO $@"
-	@$(OBJCOPY) -O binary $< $@
+	@mkdir -p "$(dir $@)"
+
+@$(OBJCOPY) -O binary $< $@
 
 update_tag:
 	@echo "#define BUILD_TAG \"$$(git describe --always --dirty)\"" > build/build_tag.tmp
@@ -126,14 +129,17 @@ update_tag:
 build/build_tag.h: update_tag
 
 build/%.bin: data/%.png
+	@mkdir -p "$(dir $@)"
 	@echo "  IMG   $@"
 	@convert $< -background black -flatten -depth 8 rgba:$@
 
 build/%.o: build/%.bin
+	@mkdir -p "$(dir $@)"
 	@echo "  BIN   $@"
 	@$(OBJCOPY) -I binary -B aarch64 -O elf64-littleaarch64 $< $@
 
 build/%.bin: font/%.bin
+	@mkdir -p "$(dir $@)"
 	@echo "  CP    $@"
 	@cp $< $@
 
