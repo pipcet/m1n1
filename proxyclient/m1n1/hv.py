@@ -1222,9 +1222,6 @@ class HV(Reloadable):
         print(f"Uploading ADT (0x{len(adt_blob):x} bytes)...")
         self.iface.writemem(self.adt_base, adt_blob)
 
-        print("Improving logo...")
-        self.p.fb_improve_logo()
-
         print("Shutting down framebuffer...")
         self.p.fb_shutdown(True)
 
