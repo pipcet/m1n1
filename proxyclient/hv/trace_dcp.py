@@ -707,4 +707,4 @@ iomon.readmem = readmem_iova
 dcp_tracer = DCPTracer(hv, "/arm-io/dcp", verbose=1)
 dcp_tracer.start(dart_dcp_tracer.dart)
 
-#dcp_tracer.ep.dcpep.state.dumpfile = open("dcp.log", "a")
+dcp_tracer.ep.dcpep.state.dumpfile = open("dcp.log", "a")
