@@ -21,7 +21,7 @@ SIMD_Q = Array(32, BytesInteger(16, swapped=True))
 
 class ProxyUtils(Reloadable):
     CODE_BUFFER_SIZE = 0x10000
-    def __init__(self, p, heap_size=1024 * 1024 * 1024):
+    def __init__(self, p, heap_size=2 * 1024 * 1024 * 1024):
         self.iface = p.iface
         self.proxy = p
         self.base = p.get_base()
