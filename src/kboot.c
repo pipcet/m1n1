@@ -177,7 +177,7 @@ static int dt_set_memory(void)
 
     // Tell the kernel our usable memory range. We cannot declare all of DRAM, and just reserve the
     // bottom and top, because the kernel would still map it (and just not use it), which breaks
-    // ioremap (e.g. simplefb).
+    // ioremap (e.g. simplefb). (This comment is obsolete).
 
     u64 dram_min = cur_boot_args.phys_base;
     u64 dram_max = cur_boot_args.phys_base + cur_boot_args.mem_size;
@@ -185,14 +185,35 @@ static int dt_set_memory(void)
     printf("FDT: DRAM at 0x%lx size 0x%lx\n", dram_base, dram_size);
     printf("FDT: Usable memory is 0x%lx..0x%lx (0x%lx)\n", dram_min, dram_max, dram_max - dram_min);
 
-    u64 memreg[2] = {cpu_to_fdt64(dram_min), cpu_to_fdt64(dram_max - dram_min)};
-
+    u64 memreg[2] = {cpu_to_fdt64(dram_base), cpu_to_fdt64(dram_size)};
     int node = fdt_path_offset(dt, "/memory");
     if (node < 0)
         bail("FDT: /memory node not found in devtree\n");
 
     if (fdt_setprop(dt, node, "reg", memreg, sizeof(memreg)))
         bail("FDT: couldn't set memory.reg property\n");
+
+    u64 fb_start = cur_boot_args.video.base;
+    u64 fb_size = cur_boot_args.video.height * cur_boot_args.video.stride;
+
+    u64 resmem1[2] = {cpu_to_fdt64(dram_base), cpu_to_fdt64(dram_min - dram_base)};
+    u64 resmem2[2] = {cpu_to_fdt64(dram_max), cpu_to_fdt64(fb_start - dram_max)};
+    u64 fbmem[2] = {cpu_to_fdt64(fb_start), cpu_to_fdt64(fb_size)};
+    u64 resmem4[2] = {cpu_to_fdt64(fb_start + fb_size), cpu_to_fdt64(dram_size + dram_base - fb_start - fb_size)};
+
+    int node1 = fdt_path_offset(dt, "/reserved-memory/botmem");
+    int node2 = fdt_path_offset(dt, "/reserved-memory/topmem-before-framebuffer");
+    int node3 = fdt_path_offset(dt, "/reserved-memory/framebuffer");
+    int node4 = fdt_path_offset(dt, "/reserved-memory/topmem-after-framebuffer");
+
+    if (node1 < 0 || node2 < 0 || node3 < 0 || node4 < 0)
+	bail("FDT: couldn't find all /reserved-memory nodes in devtree\n");
+
+    if (fdt_setprop(dt, node1, "reg", resmem1, sizeof(resmem1)) ||
+	fdt_setprop(dt, node2, "reg", resmem2, sizeof(resmem2)) ||
+	fdt_setprop(dt, node3, "reg", fbmem, sizeof(fbmem)) ||
+	fdt_setprop(dt, node4, "reg", resmem4, sizeof(resmem4)))
+	bail("FDT: couldn't adjust all /reserved-memory nodes in devtree\n");
 
     return 0;
 }
