@@ -207,13 +207,13 @@ static int dt_set_memory(void)
     int node4 = fdt_path_offset(dt, "/reserved-memory/topmem-after-framebuffer");
 
     if (node1 < 0 || node2 < 0 || node3 < 0 || node4 < 0)
-	bail("FDT: couldn't find all /reserved-memory nodes in devtree\n");
+	printf("FDT: couldn't find all /reserved-memory nodes in devtree\n");
 
     if (fdt_setprop(dt, node1, "reg", resmem1, sizeof(resmem1)) ||
 	fdt_setprop(dt, node2, "reg", resmem2, sizeof(resmem2)) ||
 	fdt_setprop(dt, node3, "reg", fbmem, sizeof(fbmem)) ||
 	fdt_setprop(dt, node4, "reg", resmem4, sizeof(resmem4)))
-	bail("FDT: couldn't adjust all /reserved-memory nodes in devtree\n");
+	printf("FDT: couldn't adjust all /reserved-memory nodes in devtree\n");
 
     return 0;
 }
