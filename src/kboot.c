@@ -92,6 +92,8 @@ static int dt_set_chosen(void)
                 break;
             case 30:
                 format = "x2r10g10b10";
+		write32(0x230850030, 0x5000);
+                format = "x8r8g8b8"; // it's all right, trust me.
                 break;
             case 16:
                 format = "r5g6b5";
