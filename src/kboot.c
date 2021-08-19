@@ -182,7 +182,10 @@ static int dt_set_memory(void)
     // ioremap (e.g. simplefb). (This comment is obsolete).
 
     u64 dram_min = cur_boot_args.phys_base;
-    u64 dram_max = cur_boot_args.phys_base + cur_boot_args.mem_size;
+    u64 dram_max = dram_base + cur_boot_args.mem_size - (cur_boot_args.phys_base - dram_base);
+    /* Reserve at least 1 GB at top-of-mem. This appears to be required. */
+    if (dram_max > dram_base + dram_size - SZ_1G)
+	dram_max = dram_base + dram_size - SZ_1G;
 
     printf("FDT: DRAM at 0x%lx size 0x%lx\n", dram_base, dram_size);
     printf("FDT: Usable memory is 0x%lx..0x%lx (0x%lx)\n", dram_min, dram_max, dram_max - dram_min);
