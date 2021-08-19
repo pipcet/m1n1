@@ -46,6 +46,7 @@ typedef s64 ssize_t;
 #define SZ_2K  (1 << 11)
 #define SZ_16K (1 << 14)
 #define SZ_1M  (1 << 20)
+#define SZ_1G  (1 << 30)
 
 #ifdef __ASSEMBLER__
 
