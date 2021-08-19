@@ -2,6 +2,8 @@
 
 #include "heapblock.h"
 #include "assert.h"
+#include "memory.h"
+#include "string.h"
 #include "types.h"
 #include "utils.h"
 #include "xnuboot.h"
@@ -44,6 +46,7 @@ void *heapblock_alloc_aligned(size_t size, size_t align)
 
     uintptr_t block = (((uintptr_t)heap_base) + align - 1) & ~(align - 1);
     heap_base = (void *)(block + size);
+    memset(block, 0, size);
 
     return (void *)block;
 }
