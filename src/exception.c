@@ -267,8 +267,9 @@ void exc_sync(u64 *regs)
             break;
         case GUARD_OFF:
         default:
-            printf("Unhandled exception, rebooting...\n");
+	  while (0)
             flush_and_reboot();
+	  while (1);
     }
 
     exc_count++;
