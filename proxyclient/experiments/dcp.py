@@ -96,20 +96,20 @@ mon.poll()
 mgr.get_color_remap_mode(6)
 mgr.enable_disable_video_power_savings(0)
 
-mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1,1,1])
+mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
 mgr.first_client_open()
 print(f"keep on: {mgr.isKeepOnScreen()}")
-print(f"main display: {mgr.is_main_display()}")
+#print(f"main display: {mgr.is_main_display()}")
 assert mgr.setPowerState(1, False, ByRef(0)) == 0
 
 mon.poll()
 
 assert mgr.set_display_device(2) == 0
-assert mgr.set_parameter_dcp(14, [0], 1) == 0
+#TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(86, 38)
 
 assert mgr.set_display_device(2) == 0
-assert mgr.set_parameter_dcp(14, [0], 1) == 0
+#: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(89, 38)
 
 t = ByRef(b"\x00" * 0xc0c)
@@ -118,7 +118,7 @@ assert mgr.set_contrast(0) == 0
 assert mgr.setBrightnessCorrection(65536) == 0
 
 assert mgr.set_display_device(2) == 0
-assert mgr.set_parameter_dcp(14, [0], 1) == 0
+#TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(89, 72)
 
 mon.poll()
@@ -128,7 +128,7 @@ swapid = ByRef(0)
 def start():
     # arg: IOUserClient
     ret = mgr.swap_start(swapid, {
-        "addr": 0xFFFFFE1667BA4A00,
+        "addr": 0xFFFFFE2333331B20,
         "unk": 0,
         "flag1": 0,
         "flag2": 1
@@ -151,13 +151,13 @@ swap_rec = Container(
     flags1 = 0x861202,
     flags2 = 0x04,
     swap_id = swapid.val,
-    surf_ids = [surface_id, 0, 0, 0],
-    src_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
-    surf_flags = [1, 0, 0, 0],
-    surf_unk = [0, 0, 0, 0],
-    dst_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
-    swap_enabled = 0x80000007,
-    swap_completed = 0x80000007,
+    surf_ids = [surface_id, 0, 0],
+    src_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
+    surf_flags = [1, 0, 0],
+    surf_unk = [0, 0, 0],
+    dst_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
+    swap_enabled = 0x1,
+    swap_completed = 0x1,
 )
 
 surf = Container(
@@ -166,7 +166,7 @@ surf = Container(
     unk_2 = False,
     plane_cnt = 0,
     plane_cnt2 = 0,
-    format = "BGRA",
+    format = "RGBA",
     unk_13 = 13,
     unk_14 = 1,
     stride = 1920 * 4,
@@ -278,7 +278,7 @@ disp_dart.iomap_at(0, iova, buf, 16<<20)
 
 def submit():
     swap_rec.swap_id = swapid.val
-    ret = mgr.swap_submit_dcp(swap_rec=swap_rec, surfaces=surfaces, surfAddr=surfAddr,
+    ret = mgr.swap_submit_dcp(swap_rec=swap_rec, surf0=surf, surf1=surf, surf2=surf, surfInfo=[iova, 0, 0],
                             unkBool=False, unkFloat=0.0, unkInt=0, unkOutBool=outB)
     print(f"swap returned {ret} / {outB}")
 

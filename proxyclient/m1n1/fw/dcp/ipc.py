@@ -526,9 +526,9 @@ IOMFBParameterName = Int32ul
 BufferDescriptor = uint64_t
 
 SwapCompleteData = Bytes(0x12)
-SwapInfoBlob = Bytes(0x680)
+SwapInfoBlob = Bytes(0x600)
 
-SWAP_SURFACES = 4
+SWAP_SURFACES = 3
 
 Rect = NamedTuple("rect", "x y w h", Int32ul[4])
 
@@ -551,15 +551,11 @@ IOMFBSwapRec = Struct(
     "dst_rect" / Rect[SWAP_SURFACES],
     "swap_enabled" / Hex(Int32ul),
     "swap_completed" / Hex(Int32ul),
-    "unk_10c" / Hex(Default(Int32ul, 0)),
-    "unk_110" / UnkBytes(0x1b8),
-    "unk_2c8" / Hex(Default(Int32ul, 0)),
-    "unk_2cc" / UnkBytes(0x14),
-    "unk_2e0" / Hex(Default(Int32ul, 0)),
-    "unk_2e4" / UnkBytes(0x3c),
+    "unk_e0" / UnkBytes(0x194),
 )
 
-assert IOMFBSwapRec.sizeof() == 0x320
+print(hex(IOMFBSwapRec.sizeof()))
+assert IOMFBSwapRec.sizeof() == 0x274
 
 MAX_PLANES = 3
 
@@ -629,7 +625,7 @@ class PropID(IntEnum):
 class UPPipeAP_H13P(IPCObject):
     A000 = Call(bool_, "late_init_signal")
     A029 = Call(void, "setup_video_limits")
-    A034 = Call(void, "update_notify_clients_dcp", Array(13, uint))
+    A034 = Call(void, "update_notify_clients_dcp", Array(11, uint))
     A036 = Call(bool_, "apt_supported")
 
     D000 = Callback(bool_, "did_boot_signal")
@@ -639,7 +635,6 @@ class UPPipeAP_H13P(IPCObject):
 
 class UnifiedPipeline2(IPCObject):
     A357 = Call(void, "set_create_DFB")
-    A358 = Call(IOMFBStatus, "vi_set_temperature_hint")
 
     D100 = Callback(void, "match_pmu_service")
     D101 = Callback(uint32_t, "UNK_get_some_field")
@@ -651,16 +646,15 @@ class UnifiedPipeline2(IPCObject):
     D110 = Callback(bool_, "create_iomfb_service")
     D111 = Callback(bool_, "create_backlight_service")
     D116 = Callback(bool_, "start_hardware_boot")
-    D118 = Callback(bool_, "is_waking_from_hibernate")
-    D120 = Callback(bool_, "read_edt_data", key=string(0x40), count=uint, value=InOut(Lazy(SizedArray(8, "count", uint32_t))))
+    D119 = Callback(bool_, "read_edt_data", key=string(0x40), count=uint, value=InOut(Lazy(SizedArray(8, "count", uint32_t))))
 
-    D122 = Callback(bool_, "setDCPAVPropStart", length=uint)
-    D123 = Callback(bool_, "setDCPAVPropChunk", data=HexDump(SizedBytes(0x1000, "length")), offset=uint, length=uint)
-    D124 = Callback(bool_, "setDCPAVPropEnd", key=string(0x40))
+    D121 = Callback(bool_, "setDCPAVPropStart", length=uint)
+    #D122 = Callback(bool_, "setDCPAVPropChunk", data=HexDump(SizedBytes(0x1000, "length")), offset=uint, length=uint)
+    D122 = Callback(bool_, "setDCPAVPropChunk", data=HexDump(Bytes(0x1000)), offset=uint, length=uint)
+    D123 = Callback(bool_, "setDCPAVPropEnd", key=string(0x40))
 
 class UPPipe2(IPCObject):
     A103 = Call(uint64_t, "test_control", cmd=uint64_t, arg=uint)
-    A131 = Call(bool_, "pmu_service_matched")
 
     D201 = Callback(uint32_t, "map_buf", buf=InPtr(BufferDescriptor), vaddr=OutPtr(ulong), dva=OutPtr(ulong), unk=bool_)
 
@@ -677,16 +671,16 @@ class IOMobileFramebufferAP(IPCObject):
     A407 = Call(uint32_t, "swap_start", swap_id=InOutPtr(uint), client=InOutPtr(IOUserClient))
     A408 = Call(uint32_t, "swap_submit_dcp",
                 swap_rec=InPtr(IOMFBSwapRec),
-                surfaces=Array(4, InPtr(IOSurface)),
-                surfAddr=Array(4, Hex(ulong)),
+                surf0=InPtr(IOSurface),
+                surf1=InPtr(IOSurface),
+                surf2=InPtr(IOSurface),
+                surfInfo=Array(3, uint),
                 unkBool=bool_,
                 unkFloat=Float64l,
                 unkInt=uint,
                 unkOutBool=OutPtr(bool_))
 
     A410 = Call(uint32_t, "set_display_device", uint)
-    A411 = Call(bool_, "is_main_display")
-    A438 = Call(uint32_t, "swap_set_color_matrix", matrix=InOutPtr(IOMFBColorFixedMatrix), func=uint32_t, unk=uint)
 #"A438": "IOMobileFramebufferAP::swap_set_color_matrix(IOMFBColorFixedMatrix*, IOMFBColorMatrixFunction, unsigned int)",
 
     A412 = Call(uint32_t, "set_digital_out_mode", uint, uint)
@@ -697,21 +691,17 @@ class IOMobileFramebufferAP(IPCObject):
     A427 = Call(uint32_t, "setBrightnessCorrection", uint)
 
     A435 = Call(uint32_t, "set_block_dcp", arg1=uint64_t, arg2=uint, arg3=uint, arg4=Array(8, ulong), arg5=uint, data=SizedBytes(0x1000, "length"), length=ulong)
-    A439 = Call(uint32_t, "set_parameter_dcp", param=IOMFBParameterName, value=Lazy(SizedArray(4, "count", ulong)), count=uint)
+    A438 = Call(uint32_t, "set_parameter_dcp", param=IOMFBParameterName, value=Lazy(SizedArray(4, "count", ulong)), count=uint)
 
-    A440 = Call(uint, "display_width")
-    A441 = Call(uint, "display_height")
-    A442 = Call(void, "get_display_size", OutPtr(uint), OutPtr(uint))
-    A443 = Call(int_, "do_create_default_frame_buffer")
-    A444 = Call(void, "printRegs")
-    A447 = Call(int_, "enable_disable_video_power_savings", uint)
-    A454 = Call(void, "first_client_open")
-    A456 = Call(bool_, "writeDebugInfo", ulong)
-    A458 = Call(bool_, "io_fence_notify", uint, uint, ulong, IOMFBStatus)
-    A460 = Call(bool_, "setDisplayRefreshProperties")
-    A463 = Call(void, "flush_supportsPower", bool_)
-    A468 = Call(uint32_t, "setPowerState", ulong, bool_, OutPtr(uint))
-    A469 = Call(bool_, "isKeepOnScreen")
+    A441 = Call(void, "get_display_size", OutPtr(uint), OutPtr(uint))
+    A442 = Call(int_, "do_create_default_frame_buffer")
+    A446 = Call(int_, "enable_disable_video_power_savings", uint)
+    A453 = Call(void, "first_client_open")
+    A455 = Call(bool_, "writeDebugInfo", ulong)
+    A459 = Call(bool_, "setDisplayRefreshProperties")
+    A462 = Call(void, "flush_supportsPower", bool_)
+    A467 = Call(uint32_t, "setPowerState", ulong, bool_, OutPtr(uint))
+    A468 = Call(bool_, "isKeepOnScreen")
 
     D552 = Callback(bool_, "setProperty_dict", key=string(0x40), value=InPtr(Padded(0x1000, OSDictionary())))
     D561 = Callback(bool_, "setProperty_dict", key=string(0x40), value=InPtr(Padded(0x1000, OSDictionary())))
