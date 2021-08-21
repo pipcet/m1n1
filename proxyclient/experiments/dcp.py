@@ -157,7 +157,7 @@ swap_rec = Container(
     src_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
     surf_flags = [1, 0, 0],
     surf_unk = [0, 0, 0],
-    dst_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
+    dst_rect = [[0, 0, 960, 540],[0, 0, 0, 0],[0,0,0,0]],
     swap_enabled = 0x1,
     swap_completed = 0x1,
 )
@@ -279,6 +279,7 @@ iface.writemem(buf, open("asahi.bin", "rb").read())
 disp_dart.iomap_at(0, iova, buf, 32<<20)
 
 def submit():
+    start()
     swap_rec.swap_id = swapid.val
     ret = mgr.swap_submit_dcp(swap_rec=swap_rec, surf0=surf, surf1=surf, surf2=surf, surfInfo=[iova, 0, 0],
                             unkBool=False, unkFloat=0.0, unkInt=0, unkOutBool=outB)
@@ -291,6 +292,15 @@ def submit():
             dcp.work()
         print("swap complete!")
 
-submit()
+t = 0
+import math
+
+while True:
+    x = math.floor(500.0 + math.cos(t * 0.08) * 400)
+    y = math.floor(500.0 + math.sin(t * 0.08) * 200)
+    swap_rec.dst_rect[0][0] = x
+    swap_rec.dst_rect[0][1] = y
+    submit()
+    t = t + 1
 
 run_shell(globals(), msg="Have fun!")
