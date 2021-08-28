@@ -157,7 +157,7 @@ swap_rec = Container(
     src_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
     surf_flags = [1, 0, 0],
     surf_unk = [0, 0, 0],
-    dst_rect = [[0, 0, 960, 540],[0, 0, 0, 0],[0,0,0,0]],
+    dst_rect = [[0, 0, 1920, 1080],[0, 0, 0, 0],[0,0,0,0]],
     swap_enabled = 0x1,
     swap_completed = 0x1,
 )
@@ -296,8 +296,8 @@ t = 0
 import math
 
 while True:
-    x = math.floor(500.0 + math.cos(t * 0.08) * 400)
-    y = math.floor(500.0 + math.sin(t * 0.08) * 200)
+    x = math.floor(900.0 + math.cos(t * 0.08) * 900)
+    y = math.floor(400.0 + math.sin(t * 0.08) * 400)
     swap_rec.dst_rect[0][0] = x
     swap_rec.dst_rect[0][1] = y
     submit()
