@@ -268,3 +268,6 @@ class DCPManager(DCPBaseManager):
     def get_calendar_time_ms(self):
         # Seconds since the unix epoch
         return int(time.time() * 1000)
+
+    def hotPlug_notify_gated(self, unk0):
+        print(f"hotPlug_notify_gated hex({unk0})")
