@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 import pprint
 import struct, functools
+import time
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -264,3 +265,6 @@ class DCPManager(DCPBaseManager):
         self.mapid += 1
         return self.mapid
 
+    def get_calendar_time_ms(self):
+        # Seconds since the unix epoch
+        return int(time.time() * 1000)
