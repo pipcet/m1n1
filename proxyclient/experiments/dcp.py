@@ -107,6 +107,8 @@ mon.poll()
 assert mgr.set_display_device(2) == 0
 #TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(86, 38)
+mgr.set_digital_out_mode(0x69, 0x45)
+
 
 assert mgr.set_display_device(2) == 0
 #: assert mgr.set_parameter_dcp(14, [0], 1) == 0
@@ -270,11 +272,11 @@ swaps = mgr.swaps
 
 mon.poll()
 
-buf = u.memalign(0x4000, 16<<20)
+buf = u.memalign(0x4000, 32<<20)
 
 iface.writemem(buf, open("asahi.bin", "rb").read())
 
-disp_dart.iomap_at(0, iova, buf, 16<<20)
+disp_dart.iomap_at(0, iova, buf, 32<<20)
 
 def submit():
     swap_rec.swap_id = swapid.val
