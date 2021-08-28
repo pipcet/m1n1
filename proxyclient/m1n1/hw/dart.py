@@ -151,6 +151,9 @@ class DART(Reloadable):
             l1idx = (page >> self.L1_OFF) & self.IDX_MASK
             l1pte = PTE(l1[l1idx])
             if not l1pte.VALID and cached:
+                for page in dirty:
+                    self.flush_pt(page)
+                dirty = set()
                 cached, l1 = self.get_pt(ttbr.ADDR << 12, uncached=True)
                 l1pte = PTE(l1[l1idx])
             if not l1pte.VALID:
