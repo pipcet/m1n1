@@ -99,29 +99,12 @@ mgr.enable_disable_video_power_savings(0)
 
 mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
 mgr.first_client_open()
-print(f"keep on: {mgr.isKeepOnScreen()}")
 assert mgr.setPowerState(1, False, ByRef(0)) == 0
 
 mon.poll()
 
 assert mgr.set_display_device(2) == 0
-#TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
-mgr.set_digital_out_mode(86, 38)
 mgr.set_digital_out_mode(0x69, 0x45)
-
-
-#assert mgr.set_display_device(2) == 0
-#: assert mgr.set_parameter_dcp(14, [0], 1) == 0
-#mgr.set_digital_out_mode(89, 38)
-#
-#t = ByRef(b"\x00" * 0xc0c)
-#assert mgr.get_gamma_table(t) == 2
-#assert mgr.set_contrast(0) == 0
-#assert mgr.setBrightnessCorrection(65536) == 0
-
-#assert mgr.set_display_device(2) == 0
-#TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
-#mgr.set_digital_out_mode(89, 72)
 
 mon.poll()
 
