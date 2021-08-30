@@ -94,21 +94,20 @@ mgr.start_signal()
 
 mon.poll()
 
-#mgr.get_color_remap_mode(6)
-#mgr.enable_disable_video_power_savings(0)
+mgr.get_color_remap_mode(6)
+mgr.enable_disable_video_power_savings(0)
 
-#mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
-#mgr.first_client_open()
+mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
+mgr.first_client_open()
 print(f"keep on: {mgr.isKeepOnScreen()}")
-#print(f"main display: {mgr.is_main_display()}")
-#assert mgr.setPowerState(1, False, ByRef(0)) == 0
+assert mgr.setPowerState(1, False, ByRef(0)) == 0
 
-#mon.poll()
+mon.poll()
 
-#assert mgr.set_display_device(2) == 0
+assert mgr.set_display_device(2) == 0
 #TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
-#mgr.set_digital_out_mode(86, 38)
-#mgr.set_digital_out_mode(0x69, 0x45)
+mgr.set_digital_out_mode(86, 38)
+mgr.set_digital_out_mode(0x69, 0x45)
 
 
 #assert mgr.set_display_device(2) == 0
