@@ -142,9 +142,11 @@ class DCPManager(DCPBaseManager):
     def create_provider_service(self):
         return True
 
+    # TODO
     def read_edt_data(self, key, count, value):
         return False
 
+    # TODO
     def UNK_get_some_field(self):
         return 0
 
@@ -204,6 +206,7 @@ class DCPManager(DCPBaseManager):
     def match_backlight_service(self):
         return True
 
+    # TODO
     def map_buf(self, buf, vaddr, dva, unk):
         print(f"map buf {buf}, {unk}")
         paddr, dcpdva, dvasize = self.bufs[buf]
@@ -243,6 +246,7 @@ class DCPManager(DCPBaseManager):
 
     ## MemDescRelay methods:
 
+    # TODO
     def allocate_buffer(self, unk0, size, unk1, paddr, dva, dvasize):
         print(f"allocate_buffer({unk0}, {size}, {unk1})")
 
@@ -257,6 +261,7 @@ class DCPManager(DCPBaseManager):
 
         return self.mapid
 
+    # TODO
     def map_physical(self, paddr, size, flags, dva, dvasize):
         dvasize.val = align_up(size, 4096)
         dva.val = self.dcp.dart.iomap(0, paddr, size)
@@ -265,9 +270,11 @@ class DCPManager(DCPBaseManager):
         self.mapid += 1
         return self.mapid
 
+    # TODO
     def get_calendar_time_ms(self):
         # Seconds since the unix epoch
         return int(time.time() * 1000)
 
     def hotPlug_notify_gated(self, unk0):
         print(f"hotPlug_notify_gated hex({unk0})")
+

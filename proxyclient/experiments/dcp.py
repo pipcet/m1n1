@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 import sys, pathlib
+import time
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
 import struct
@@ -93,33 +94,33 @@ mgr.start_signal()
 
 mon.poll()
 
-mgr.get_color_remap_mode(6)
-mgr.enable_disable_video_power_savings(0)
+#mgr.get_color_remap_mode(6)
+#mgr.enable_disable_video_power_savings(0)
 
-mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
-mgr.first_client_open()
+#mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
+#mgr.first_client_open()
 print(f"keep on: {mgr.isKeepOnScreen()}")
 #print(f"main display: {mgr.is_main_display()}")
-assert mgr.setPowerState(1, False, ByRef(0)) == 0
+#assert mgr.setPowerState(1, False, ByRef(0)) == 0
 
-mon.poll()
+#mon.poll()
 
-assert mgr.set_display_device(2) == 0
+#assert mgr.set_display_device(2) == 0
 #TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(86, 38)
-mgr.set_digital_out_mode(0x69, 0x45)
+#mgr.set_digital_out_mode(0x69, 0x45)
 
 
-assert mgr.set_display_device(2) == 0
+#assert mgr.set_display_device(2) == 0
 #: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(89, 38)
+#
+#t = ByRef(b"\x00" * 0xc0c)
+#assert mgr.get_gamma_table(t) == 2
+#assert mgr.set_contrast(0) == 0
+#assert mgr.setBrightnessCorrection(65536) == 0
 
-t = ByRef(b"\x00" * 0xc0c)
-assert mgr.get_gamma_table(t) == 2
-assert mgr.set_contrast(0) == 0
-assert mgr.setBrightnessCorrection(65536) == 0
-
-assert mgr.set_display_device(2) == 0
+#assert mgr.set_display_device(2) == 0
 #TODO: assert mgr.set_parameter_dcp(14, [0], 1) == 0
 #mgr.set_digital_out_mode(89, 72)
 
@@ -153,13 +154,13 @@ swap_rec = Container(
     flags1 = 0x861202,
     flags2 = 0x04,
     swap_id = swapid.val,
-    surf_ids = [surface_id, 0, 0],
-    src_rect = [[0, 0, 1920, 1080],[0,0,0,0],[0,0,0,0]],
-    surf_flags = [1, 0, 0],
-    surf_unk = [0, 0, 0],
-    dst_rect = [[0, 0, 1920, 1080],[0, 0, 0, 0],[0,0,0,0]],
-    swap_enabled = 0x1,
-    swap_completed = 0x1,
+    surf_ids = [surface_id, surface_id, surface_id],
+    src_rect = [[0, 0, 1920, 1080],[0,0,1920,1080],[0,0,960,540]],
+    surf_flags = [1, 1, 1],
+    surf_unk = [1, 1, 1],
+    dst_rect = [[0, 0, 1920, 1080],[0, 0, 960, 540],[0,0,480,270]],
+    swap_enabled = 0x3,
+    swap_completed = 0x3,
 )
 
 surf = Container(
@@ -281,7 +282,7 @@ disp_dart.iomap_at(0, iova, buf, 32<<20)
 def submit():
     start()
     swap_rec.swap_id = swapid.val
-    ret = mgr.swap_submit_dcp(swap_rec=swap_rec, surf0=surf, surf1=surf, surf2=surf, surfInfo=[iova, 0, 0],
+    ret = mgr.swap_submit_dcp(swap_rec=swap_rec, surf0=surf, surf1=surf, surf2=surf, surfInfo=[iova, iova, iova],
                             unkBool=False, unkFloat=0.0, unkInt=0, unkOutBool=outB)
     print(f"swap returned {ret} / {outB}")
 
@@ -298,9 +299,10 @@ import math
 while True:
     x = math.floor(900.0 + math.cos(t * 0.08) * 900)
     y = math.floor(400.0 + math.sin(t * 0.08) * 400)
-    swap_rec.dst_rect[0][0] = x
-    swap_rec.dst_rect[0][1] = y
+    swap_rec.dst_rect[2][0] = x
+    swap_rec.dst_rect[2][1] = y
     submit()
     t = t + 1
+    time.sleep(1)
 
 run_shell(globals(), msg="Have fun!")

@@ -530,7 +530,7 @@ SwapInfoBlob = Bytes(0x600)
 
 SWAP_SURFACES = 3
 
-Rect = NamedTuple("rect", "x y w h", Int32ul[4])
+Rect = NamedTuple("rect", "x y w h", Int32sl[4])
 
 IOMFBSwapRec = Struct(
     "ts1" / Default(Int64ul, 0),
