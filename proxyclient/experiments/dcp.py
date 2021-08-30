@@ -94,15 +94,6 @@ mgr.start_signal()
 
 mon.poll()
 
-mgr.get_color_remap_mode(6)
-mgr.enable_disable_video_power_savings(0)
-
-mgr.update_notify_clients_dcp([0,0,0,0,0,0,1,1,1,0,1]) # TODO
-mgr.first_client_open()
-assert mgr.setPowerState(1, False, ByRef(0)) == 0
-
-mon.poll()
-
 assert mgr.set_display_device(2) == 0
 mgr.set_digital_out_mode(0x69, 0x45)
 
@@ -113,10 +104,10 @@ swapid = ByRef(0)
 def start():
     # arg: IOUserClient
     ret = mgr.swap_start(swapid, {
-        "addr": 0xFFFFFE2333331B20,
+        "addr": 0,
         "unk": 0,
         "flag1": 0,
-        "flag2": 1
+        "flag2": 0
     })
     assert ret == 0
     print(f"swap ID: {swapid.val:#x}")
