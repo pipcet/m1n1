@@ -33,7 +33,6 @@ mgr = DCPManager(dcp.dcpep)
 
 mgr.start_signal()
 
-assert mgr.set_display_device(2) == 0
 mgr.set_digital_out_mode(0x69, 0x45)
 
 swapid = ByRef(0)
