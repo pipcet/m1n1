@@ -299,7 +299,7 @@ void fb_init(void)
            console.cursor.max_col);
 }
 
-void fb_shutdown(bool restore_logo)
+void fb_shutdown(bool ignored)
 {
     if (!console.initialized)
         return;
