@@ -118,8 +118,7 @@ build/$(NAME).elf: $(BUILD_OBJS) m1n1.ld
 build/$(NAME).macho: build/$(NAME).elf
 	@echo "  MACHO $@"
 	@mkdir -p "$(dir $@)"
-
-@$(OBJCOPY) -O binary $< $@
+	@$(OBJCOPY) -O binary $< $@
 
 update_tag:
 	@echo "#define BUILD_TAG \"$$(git describe --always --dirty)\"" > build/build_tag.tmp
