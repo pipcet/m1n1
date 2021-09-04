@@ -14,12 +14,6 @@
 
 fb_t fb;
 
-struct image {
-    u32 *ptr;
-    u32 width;
-    u32 height;
-};
-
 static struct {
     struct {
         u8 *ptr;
@@ -42,9 +36,6 @@ static struct {
 
     int initialized;
 } console = {.initialized = 0};
-
-extern u8 _binary_build_bootlogo_128_bin_start[];
-extern u8 _binary_build_bootlogo_256_bin_start[];
 
 extern u8 _binary_build_font_bin_start[];
 extern u8 _binary_build_font_retina_bin_start[];
@@ -167,8 +158,13 @@ void fb_blit_logo(const struct image *logo)
 
 void fb_display_logo(void)
 {
-    printf("fb: display logo\n");
-    fb_blit_logo(logo);
+    for (int x = -128; x < 128; x++)
+        for (int y = -128; y < 128; y++) {
+            if ((x * x + y * y <= 128 * 128 && x * x + y * y >= 112 * 112) ||
+                (x * x + y * y <= 80 * 80 && x * x + y * y >= 48 * 48 &&
+                 (x >= 0 || y * y >= x * x)))
+                fb_set_pixel(fb.width / 2 + x, fb.height / 2 + y, (rgb_t){.r = 255});
+        }
 }
 
 void fb_restore_logo(void)
