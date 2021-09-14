@@ -121,6 +121,7 @@ build/$(NAME).macho: build/$(NAME).elf
 	@$(OBJCOPY) -O binary $< $@
 
 update_tag:
+	@mkdir -p build
 	@echo "#define BUILD_TAG \"$$(git describe --always --dirty)\"" > build/build_tag.tmp
 	@cmp -s build/build_tag.h build/build_tag.tmp 2>/dev/null || \
 	( mv -f build/build_tag.tmp build/build_tag.h && echo "  TAG   build/build_tag.h" )
