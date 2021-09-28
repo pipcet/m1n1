@@ -509,7 +509,9 @@ rt_bw_config_t = Struct(
     "reg2" / Int64ul,
     "unk2" / UnkBytes(4),
     "bit" / Int32ul,
-    "padding" / UnkBytes(0x1c),
+    "padding1" / UnkBytes(3 * 4),
+    "unk" / Int32ul,
+    "padding" / UnkBytes(0xc),
 )
 
 IOUserClient = Struct(

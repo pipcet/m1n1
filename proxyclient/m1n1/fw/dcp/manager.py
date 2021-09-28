@@ -133,6 +133,7 @@ class DCPManager(DCPBaseManager):
             "reg1": 0x23b738014, # reg[5] in disp0/dispext0, plus 0x14 - part of pmgr
             "reg2": 0x23bc3c000, # reg[6] in disp0/dispext0 - part of pmp/pmgr
             "bit": 2,
+            "unk": 0x4, # XXX: required by 11.x firmware
         }
     ## UnifiedPipeline2 methods
 
