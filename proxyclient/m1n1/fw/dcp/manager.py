@@ -169,8 +169,9 @@ class DCPManager(DCPBaseManager):
     def setDCPAVPropChunk(self, data, offset, length):
         print(f"setDCPAVPropChunk(..., {offset:#x}, {length:#x})")
         assert offset == self.dcpav_prop_off
-        self.dcpav_prop_data.append(data)
-        self.dcpav_prop_off += len(data)
+        assert length <= len(data)
+        self.dcpav_prop_data.append(data[0:length])
+        self.dcpav_prop_off += length
         return True
 
     def setDCPAVPropEnd(self, key):
