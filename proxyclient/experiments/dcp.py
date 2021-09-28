@@ -33,7 +33,7 @@ mgr = DCPManager(dcp.dcpep)
 
 mgr.start_signal()
 
-mgr.set_digital_out_mode(0x69, 0x45)
+#mgr.set_digital_out_mode(0x69, 0x45)
 
 swapid = ByRef(0)
 
@@ -98,7 +98,7 @@ swaps = mgr.swaps
 
 buf = u.memalign(0x4000, 32<<20)
 
-iface.writemem(buf, open("asahi.bin", "rb").read())
+iface.writemem(buf, bytes([0xFF] * 1920*1080*4))
 
 disp_dart.iomap_at(0, iova, buf, 32<<20)
 
