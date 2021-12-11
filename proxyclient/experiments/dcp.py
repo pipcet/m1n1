@@ -33,7 +33,7 @@ mgr = DCPManager(dcp.dcpep)
 
 mgr.start_signal()
 
-#mgr.set_digital_out_mode(0x69, 0x45)
+mgr.set_digital_out_mode(0x59, 0x43)
 
 swapid = ByRef(0)
 
@@ -57,10 +57,10 @@ swap_rec = Container(
     flags2 = 0,
     swap_id = swapid.val,
     surf_ids = [surface_id, surface_id, surface_id],
-    src_rect = [[0, 0, 1920, 1080],[0,0,1920,1080],[0,0,960,540]],
+    src_rect = [[0, 0, 3840, 2160],[0,0, 3840,2160],[0,0,3840,2160]],
     surf_flags = [1, 1, 1],
     surf_unk = [1, 1, 1],
-    dst_rect = [[0, 0, 1920, 1080],[0, 0, 960, 540],[0,0,480,270]],
+    dst_rect = [[0, 0, 3840, 2160],[0,0, 3840,2160],[0,0,3840,2160]],
     swap_enabled = 0x3,
     swap_completed = 0x3,
 )
@@ -74,14 +74,14 @@ surf = Container(
     format = "RGBA",
     unk_13 = 13,
     unk_14 = 1,
-    stride = 1920 * 4,
+    stride = 3840 * 4,
     pix_size = 4,
     pel_w = 1,
     pel_h = 1,
     offset = 0,
-    width = 1920,
-    height = 1080,
-    buf_size = 1920 * 1080 * 4,
+    width = 3840,
+    height = 2160,
+    buf_size = 1920 * 1080 * 4 * 4,
     surface_id = surface_id,
     has_comp = True,
     has_planes = True,
@@ -96,9 +96,9 @@ outB = ByRef(False)
 
 swaps = mgr.swaps
 
-buf = u.memalign(0x4000, 32<<20)
+buf = u.ba.mem_size - (32<<20) + 0x800000000
 
-iface.writemem(buf, bytes([0xFF] * 1920*1080*4))
+iface.writemem(buf, bytes([0xFF] * 3840*2160*4))
 
 disp_dart.iomap_at(0, iova, buf, 32<<20)
 
@@ -116,5 +116,9 @@ def submit():
             dcp.work()
         print("swap complete!")
 
+mgr.set_digital_out_mode(0x59, 0x43)
+
 submit()
+mgr.set_digital_out_mode(0x59, 0x43)
+
 run_shell(globals(), msg="Have fun!")
