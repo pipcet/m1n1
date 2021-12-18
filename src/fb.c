@@ -43,6 +43,7 @@ extern u8 _binary_build_font_retina_bin_start[];
 
 void fb_update(void)
 {
+    memcpy128(fb.hwptr, fb.ptr, fb.size);
 }
 static void fb_clear_font_row(u32 row)
 {
