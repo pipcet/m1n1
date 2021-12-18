@@ -1,15 +1,30 @@
-ARCH := aarch64-linux-gnu-
+ARCH ?= aarch64-linux-gnu-
+
+ifeq ($(shell uname),Darwin)
+USE_CLANG ?= 1
+$(info INFO: Building on Darwin)
+ifeq ($(shell uname -p),arm)
+TOOLCHAIN ?= /opt/homebrew/opt/llvm/bin/
+else
+TOOLCHAIN ?= /usr/local/opt/llvm/bin/
+endif
+$(info INFO: Toolchain path: $(TOOLCHAIN))
+endif
 
 ifeq ($(USE_CLANG),1)
-CC := clang --target=$(ARCH)
-AS := clang --target=$(ARCH)
-LD := ld.lld
-OBJCOPY := llvm-objcopy
+CC := $(TOOLCHAIN)clang --target=$(ARCH)
+AS := $(TOOLCHAIN)clang --target=$(ARCH)
+LD := $(TOOLCHAIN)ld.lld
+OBJCOPY := $(TOOLCHAIN)llvm-objcopy
+CLANG_FORMAT := $(TOOLCHAIN)clang-format
+EXTRA_CFLAGS ?=
 else
-CC := $(ARCH)gcc
-AS := $(ARCH)gcc
-LD := $(ARCH)ld
-OBJCOPY := $(ARCH)objcopy
+CC := $(TOOLCHAIN)$(ARCH)gcc
+AS := $(TOOLCHAIN)$(ARCH)gcc
+LD := $(TOOLCHAIN)$(ARCH)ld
+OBJCOPY := $(TOOLCHAIN)$(ARCH)objcopy
+CLANG_FORMAT := clang-format
+EXTRA_CFLAGS ?= -Wstack-usage=1024
 endif
 
 CFLAGS := -O2 -Wall -g -Wundef -Werror=strict-prototypes -fno-common -fno-PIE \
@@ -18,9 +33,9 @@ CFLAGS := -O2 -Wall -g -Wundef -Werror=strict-prototypes -fno-common -fno-PIE \
 	-ffreestanding -fpic -ffunction-sections -fdata-sections \
 	-nostdinc -isystem $(shell $(CC) -print-file-name=include) -isystem sysinc \
 	-fno-stack-protector -mgeneral-regs-only -mstrict-align -march=armv8.2-a \
-	-Wstack-usage=1024
+	$(EXTRA_CFLAGS)
 
-LDFLAGS := -T m1n1.ld -EL -maarch64elf --no-undefined -X -Bsymbolic \
+LDFLAGS := -EL -maarch64elf --no-undefined -X -Bsymbolic \
 	-z notext --no-apply-dynamic-relocs --orphan-handling=warn \
 	-z nocopyreloc --gc-sections -pie
 
@@ -40,6 +55,7 @@ OBJECTS := \
 	adt.o \
 	aic.o \
 	chickens.o \
+	cpufreq.o \
 	dart.o \
 	exception.o exception_asm.o \
 	fb.o font.o font_retina.o \
@@ -50,6 +66,7 @@ OBJECTS := \
 	iodev.o \
 	kboot.o \
 	main.o \
+	mcc.o \
 	memory.o memory_asm.o \
 	payload.o \
 	pcie.o \
@@ -77,17 +94,18 @@ DTBS := $(patsubst %.dts,build/dtb/%.dtb,$(DTS))
 
 NAME := m1n1
 TARGET := m1n1.macho
+TARGET_RAW := m1n1.bin
 
 DEPDIR := build/.deps
 
 .PHONY: all clean format update_tag
-all: build/$(TARGET) $(DTBS)
+all: build/$(TARGET) build/$(TARGET_RAW) $(DTBS)
 clean:
 	rm -rf build/*
 format:
-	clang-format -i src/*.c src/*.h sysinc/*.h
+	$(CLANG_FORMAT) -i src/*.c src/*.h sysinc/*.h
 format-check:
-	clang-format --dry-run --Werror src/*.c src/*.h sysinc/*.h
+	$(CLANG_FORMAT) --dry-run --Werror src/*.c src/*.h sysinc/*.h
 
 build/dtb/%.dts: dts/%.dts
 	@echo "  DTCPP $@"
@@ -103,23 +121,31 @@ build/%.o: src/%.S build/build_tag.h
 	@echo "  AS    $@"
 	@mkdir -p $(DEPDIR)
 	@mkdir -p "$(dir $@)"
-	@$(AS) -c $(CFLAGS) -Wp,-MMD,$(DEPDIR)/$(*F).d,-MQ,"$@",-MP -o $@ $<
+	@$(AS) -c $(CFLAGS) -MMD -MF $(DEPDIR)/$(*F).d -MQ "$@" -MP -o $@ $<
 
 build/%.o: src/%.c build/build_tag.h
 	@echo "  CC    $@"
 	@mkdir -p $(DEPDIR)
 	@mkdir -p "$(dir $@)"
-	@$(CC) -c $(CFLAGS) -Wp,-MMD,$(DEPDIR)/$(*F).d,-MQ,"$@",-MP -o $@ $<
+	@$(CC) -c $(CFLAGS) -MMD -MF $(DEPDIR)/$(*F).d -MQ "$@" -MP -o $@ $<
 
 build/$(NAME).elf: $(BUILD_OBJS) m1n1.ld
 	@echo "  LD    $@"
 	@mkdir -p "$(dir $@)"
-	@$(LD) $(LDFLAGS) -o $@ $(BUILD_OBJS)
+	@$(LD) -T m1n1.ld $(LDFLAGS) -o $@ $(BUILD_OBJS)
+
+build/$(NAME)-raw.elf: $(BUILD_OBJS) m1n1-raw.ld
+	@echo "  LDRAW $@"
+	@$(LD) -T m1n1-raw.ld $(LDFLAGS) -o $@ $(BUILD_OBJS)
 
 build/$(NAME).macho: build/$(NAME).elf
 	@echo "  MACHO $@"
 	@mkdir -p "$(dir $@)"
 	@$(OBJCOPY) -O binary $< $@
+
+build/$(NAME).bin: build/$(NAME)-raw.elf
+	@echo "  RAW   $@"
+	@$(OBJCOPY) -O binary --strip-debug $< $@
 
 update_tag:
 	@mkdir -p build

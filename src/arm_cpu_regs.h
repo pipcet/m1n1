@@ -164,6 +164,22 @@
 #define HCR_SWIO     BIT(1)
 #define HCR_VM       BIT(0)
 
+#define SYS_ID_AA64MMFR0_EL1   sys_reg(3, 0, 0, 7, 0)
+#define ID_AA64MMFR0_ECV       GENMASK(63, 60)
+#define ID_AA64MMFR0_FGT       GENMASK(59, 56)
+#define ID_AA64MMFR0_ExS       GENMASK(47, 44)
+#define ID_AA64MMFR0_TGran4_2  GENMASK(43, 40)
+#define ID_AA64MMFR0_TGran64_2 GENMASK(39, 36)
+#define ID_AA64MMFR0_TGran16_2 GENMASK(35, 32)
+#define ID_AA64MMFR0_TGran4    GENMASK(31, 28)
+#define ID_AA64MMFR0_TGran64   GENMASK(27, 24)
+#define ID_AA64MMFR0_TGran16   GENMASK(23, 20)
+#define ID_AA64MMFR0_BigEndEL0 GENMASK(19, 16)
+#define ID_AA64MMFR0_SNSMem    GENMASK(15, 12)
+#define ID_AA64MMFR0_BigEnd    GENMASK(11, 8)
+#define ID_AA64MMFR0_ASIDBits  GENMASK(7, 4)
+#define ID_AA64MMFR0_PARange   GENMASK(3, 0)
+
 #define SYS_PAR_EL1 sys_reg(3, 0, 7, 4, 0)
 // AArch64-PAR_EL1.F == 0b0
 #define PAR_ATTR GENMASK(63, 56)
@@ -273,6 +289,8 @@
 #define TCR_AS         BIT(36)
 #define TCR_IPS        GENMASK(34, 32)
 #define TCR_IPS_1TB    0b010UL
+#define TCR_IPS_4TB    0b011UL
+#define TCR_IPS_16TB   0b100UL
 #define TCR_TG1        GENMASK(31, 30)
 #define TCR_TG1_16K    0b01UL
 #define TCR_SH1        GENMASK(29, 28)

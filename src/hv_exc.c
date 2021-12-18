@@ -36,8 +36,7 @@ static u64 exc_entry_time;
 
 extern u32 hv_cpus_in_guest;
 
-void hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, uartproxy_exc_code_t type,
-                  void *extra)
+void hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type, void *extra)
 {
     int from_el = FIELD_GET(SPSR_M, ctx->spsr) >> 2;
 
@@ -143,10 +142,32 @@ static bool hv_handle_msr(struct exc_info *ctx, u64 iss)
     switch (reg) {
         /* Some kind of timer */
         SYSREG_PASS(sys_reg(3, 7, 15, 1, 1));
+        /* Spammy stuff seen on t600x p-cores */
+        SYSREG_PASS(sys_reg(3, 2, 15, 12, 0));
+        SYSREG_PASS(sys_reg(3, 2, 15, 13, 0));
+        SYSREG_PASS(sys_reg(3, 2, 15, 14, 0));
+        SYSREG_PASS(sys_reg(3, 2, 15, 15, 0));
+        SYSREG_PASS(sys_reg(3, 1, 15, 7, 0));
+        SYSREG_PASS(sys_reg(3, 1, 15, 8, 0));
+        SYSREG_PASS(sys_reg(3, 1, 15, 9, 0));
+        SYSREG_PASS(sys_reg(3, 1, 15, 10, 0));
         /* Noisy traps */
         SYSREG_MAP(SYS_ACTLR_EL1, SYS_IMP_APL_ACTLR_EL12)
         SYSREG_PASS(SYS_IMP_APL_HID4)
         SYSREG_PASS(SYS_IMP_APL_EHID4)
+        /* We don't normally trap hese, but if we do, they're noisy */
+        SYSREG_PASS(SYS_IMP_APL_GXF_STATUS_EL1)
+        SYSREG_PASS(SYS_IMP_APL_CNTVCT_ALIAS_EL0)
+        SYSREG_PASS(SYS_IMP_APL_TPIDR_GL1)
+        SYSREG_MAP(SYS_IMP_APL_SPSR_GL1, SYS_IMP_APL_SPSR_GL12)
+        SYSREG_MAP(SYS_IMP_APL_ASPSR_GL1, SYS_IMP_APL_ASPSR_GL12)
+        SYSREG_MAP(SYS_IMP_APL_ELR_GL1, SYS_IMP_APL_ELR_GL12)
+        SYSREG_MAP(SYS_IMP_APL_ESR_GL1, SYS_IMP_APL_ESR_GL12)
+        SYSREG_MAP(SYS_IMP_APL_SPRR_PERM_EL1, SYS_IMP_APL_SPRR_PERM_EL12)
+        SYSREG_MAP(SYS_IMP_APL_APCTL_EL1, SYS_IMP_APL_APCTL_EL12)
+        SYSREG_MAP(SYS_IMP_APL_AMX_CTL_EL1, SYS_IMP_APL_AMX_CTL_EL12)
+        /* FIXME:Might be wrong */
+        SYSREG_PASS(sys_reg(3, 4, 15, 1, 3))
         /* pass through PMU handling */
         SYSREG_PASS(SYS_IMP_APL_PMCR1)
         SYSREG_PASS(SYS_IMP_APL_PMCR2)
@@ -167,12 +188,28 @@ static bool hv_handle_msr(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(SYS_IMP_APL_PMC7)
         SYSREG_PASS(SYS_IMP_APL_PMC8)
         SYSREG_PASS(SYS_IMP_APL_PMC9)
-        /* Handle this one here because m1n1/Linux (will) use it for explicit cpuidle.
+
+        /*
+         * Handle this one here because m1n1/Linux (will) use it for explicit cpuidle.
          * We can pass it through; going into deep sleep doesn't break the HV since we
-         * don't do any wfis that assume otherwise in m1n1. */
-        SYSREG_PASS(SYS_IMP_APL_CYC_OVRD)
+         * don't do any wfis that assume otherwise in m1n1. However, don't het macOS
+         * disable WFI ret (when going into systemwide sleep), since that breaks things.
+         */
+        case SYSREG_ISS(SYS_IMP_APL_CYC_OVRD):
+            if (is_read) {
+                regs[rt] = mrs(SYS_IMP_APL_CYC_OVRD);
+            } else {
+                msr(SYS_IMP_APL_CYC_OVRD, regs[rt] & ~CYC_OVRD_DISABLE_WFI_RET);
+                if (regs[rt] & CYC_OVRD_DISABLE_WFI_RET)
+                    printf("msr(SYS_IMP_APL_CYC_OVRD, 0x%08lx): Filtered WFI RET disable\n",
+                           regs[rt]);
+            }
+            return true;
+            /* clang-format off */
+
         /* IPI handling */
         SYSREG_PASS(SYS_IMP_APL_IPI_CR_EL1)
+        /* clang-format on */
         case SYSREG_ISS(SYS_IMP_APL_IPI_RR_LOCAL_EL1): {
             assert(!is_read);
             u64 mpidr = (regs[rt] & 0xff) | (mrs(MPIDR_EL1) & 0xffff00);
@@ -185,7 +222,7 @@ static bool hv_handle_msr(struct exc_info *ctx, u64 iss)
         case SYSREG_ISS(SYS_IMP_APL_IPI_RR_GLOBAL_EL1):
             assert(!is_read);
             u64 mpidr = (regs[rt] & 0xff) | ((regs[rt] & 0xff0000) >> 8);
-            msr(SYS_IMP_APL_IPI_RR_LOCAL_EL1, regs[rt]);
+            msr(SYS_IMP_APL_IPI_RR_GLOBAL_EL1, regs[rt]);
             for (int i = 0; i < MAX_CPUS; i++) {
                 if (mpidr == (smp_get_mpidr(i) & 0xffff))
                     ipi_queued[i] = true;

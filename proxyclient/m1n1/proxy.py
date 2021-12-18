@@ -83,7 +83,7 @@ ExcInfo = Struct(
 )
 # Sends 56+ byte Commands and Expects 36 Byte Responses
 # Commands are format <I48sI
-#   4 byte command, 48 byte null padded data + 4 byte checksum 
+#   4 byte command, 48 byte null padded data + 4 byte checksum
 # Responses are of the format: struct format <Ii24sI
 #   4byte Response , 4 byte status, 24 byte string,  4 byte Checksum
 #    Response must start 0xff55aaXX where XX distiguishes between them
@@ -121,7 +121,7 @@ class UartInterface(Reloadable):
         self.debug = debug
         self.devpath = None
         if device is None:
-            device = os.environ.get("M1N1DEVICE", "/dev/ttyUSB0:115200")
+            device = os.environ.get("M1N1DEVICE", "/dev/ttyACM0:115200")
         if isinstance(device, str):
             baud = 115200
             if ":" in device:
@@ -423,10 +423,15 @@ class AlignmentError(Exception):
 class IODEV(IntEnum):
     UART = 0
     FB = 1
-    USB0 = 2
-    USB1 = 3
-    USB0_SEC = 4
-    USB1_SEC = 5
+    USB_VUART = 2
+    USB0 = 3
+    USB1 = 4
+    USB2 = 5
+    USB3 = 6
+    USB4 = 7
+    USB5 = 8
+    USB6 = 9
+    USB7 = 10
 
 class USAGE(IntFlag):
     CONSOLE = (1 << 0)
@@ -439,9 +444,9 @@ class GUARD(IntFlag):
     RETURN = 3
     SILENT = 0x100
 
-REGION_RWX_EL0 = 0x8000000000
-REGION_RW_EL0 = 0x9000000000
-REGION_RX_EL1 = 0xa000000000
+REGION_RWX_EL0 = 0x80000000000
+REGION_RW_EL0 = 0xa0000000000
+REGION_RX_EL1 = 0xc0000000000
 
 # Uses UartInterface.proxyreq() to send requests to M1N1 and process
 # reponses sent back.
@@ -516,6 +521,7 @@ class M1N1Proxy(Reloadable):
     P_MMU_INIT = 0x30c
     P_MMU_DISABLE = 0x30d
     P_MMU_RESTORE = 0x30e
+    P_MMU_INIT_SECONDARY = 0x30f
 
     P_XZDEC = 0x400
     P_GZDEC = 0x401
@@ -546,6 +552,7 @@ class M1N1Proxy(Reloadable):
     P_IODEV_READ = 0x903
     P_IODEV_WRITE = 0x904
     P_IODEV_WHOAMI = 0x905
+    P_USB_IODEV_VUART_SETUP = 0x906
 
     P_TUNABLES_APPLY_GLOBAL = 0xa00
     P_TUNABLES_APPLY_LOCAL = 0xa01
@@ -575,6 +582,9 @@ class M1N1Proxy(Reloadable):
     P_FB_DISPLAY_LOGO = 0xd06
     P_FB_RESTORE_LOGO = 0xd07
     P_FB_IMPROVE_LOGO = 0xd08
+
+    P_PCIE_INIT = 0xe00
+    P_PCIE_SHUTDOWN = 0xe01
 
     def __init__(self, iface, debug=False):
         self.debug = debug
@@ -783,7 +793,7 @@ class M1N1Proxy(Reloadable):
         if addr & 3:
             raise AlignmentError()
         self.request(self.P_MASK32, addr, clear, set)
-    def mset64ask16(self, addr, clear, set):
+    def mask16(self, addr, clear, set):
         '''Clear select bits in 16 bit memory addr that are set
  in clear parameter, then set the bits in set parameter and return result'''
         if addr & 1:
@@ -864,6 +874,8 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_MMU_DISABLE)
     def mmu_restore(self, flags):
         self.request(self.P_MMU_RESTORE, flags)
+    def mmu_init_secondary(self, cpu):
+        self.request(self.P_MMU_INIT_SECONDARY, cpu)
 
 
     def xzdec(self, inbuf, insize, outbuf=0, outsize=0):
@@ -926,6 +938,8 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_IODEV_WRITE, iodev, buf, size)
     def iodev_whoami(self):
         return IODEV(self.request(self.P_IODEV_WHOAMI))
+    def usb_iodev_vuart_setup(self, iodev):
+        return self.request(self.P_USB_IODEV_VUART_SETUP, iodev)
 
     def tunables_apply_global(self, path, prop):
         return self.request(self.P_TUNABLES_APPLY_GLOBAL, path, prop)
@@ -971,9 +985,9 @@ class M1N1Proxy(Reloadable):
     def fb_shutdown(self, restore_logo=True):
         return self.request(self.P_FB_SHUTDOWN, restore_logo)
     def fb_blit(self, x, y, w, h, ptr, stride):
-        return self.request(self.P_FB_BLIP, x, y, w, h, ptr, stride)
+        return self.request(self.P_FB_BLIT, x, y, w, h, ptr, stride)
     def fb_unblit(self, x, y, w, h, ptr, stride):
-        return self.request(self.P_FB_UNBLIP, x, y, w, h, ptr, stride)
+        return self.request(self.P_FB_UNBLIT, x, y, w, h, ptr, stride)
     def fb_fill(self, color):
         return self.request(self.P_FB_FILL, x, y, w, h, color)
     def fb_clear(self, color):
@@ -985,12 +999,17 @@ class M1N1Proxy(Reloadable):
     def fb_improve_logo(self):
         return self.request(self.P_FB_IMPROVE_LOGO)
 
+    def pcie_init(self):
+        return self.request(self.P_PCIE_INIT)
+    def pcie_shutdown(self):
+        return self.request(self.P_PCIE_SHUTDOWN)
+
 __all__.extend(k for k, v in globals().items()
                if (callable(v) or isinstance(v, type)) and v.__module__ == __name__)
 
 if __name__ == "__main__":
     import serial
-    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyUSB0")
+    uartdev = os.environ.get("M1N1DEVICE", "/dev/ttyACM0")
     usbuart = serial.Serial(uartdev, 115200)
     uartif = UartInterface(usbuart, debug=True)
     print("Sending NOP...", end=' ')

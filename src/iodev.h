@@ -6,14 +6,14 @@
 #include "types.h"
 #include "utils.h"
 
+#define USB_IODEV_COUNT 8
+
 typedef enum _iodev_id_t {
     IODEV_UART,
     IODEV_FB,
+    IODEV_USB_VUART,
     IODEV_USB0,
-    IODEV_USB1,
-    IODEV_USB0_SEC,
-    IODEV_USB1_SEC,
-    IODEV_MAX,
+    IODEV_MAX = IODEV_USB0 + USB_IODEV_COUNT,
 } iodev_id_t;
 
 typedef enum _iodev_usage_t {
@@ -34,11 +34,13 @@ struct iodev_ops {
 struct iodev {
     const struct iodev_ops *ops;
 
+    spinlock_t lock;
     iodev_usage_t usage;
     void *opaque;
 };
 
-extern struct iodev *iodevs[IODEV_MAX];
+void iodev_register_device(iodev_id_t id, struct iodev *dev);
+struct iodev *iodev_unregister_device(iodev_id_t id);
 
 ssize_t iodev_can_read(iodev_id_t id);
 bool iodev_can_write(iodev_id_t id);
@@ -52,9 +54,8 @@ void iodev_console_write(const void *buf, size_t length);
 void iodev_console_kick(void);
 void iodev_console_flush(void);
 
-static inline void iodev_set_usage(iodev_id_t id, iodev_usage_t usage)
-{
-    iodevs[id]->usage = usage;
-}
+iodev_usage_t iodev_get_usage(iodev_id_t id);
+void iodev_set_usage(iodev_id_t id, iodev_usage_t usage);
+void *iodev_get_opaque(iodev_id_t id);
 
 #endif

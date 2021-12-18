@@ -2,6 +2,7 @@
 
 import struct
 
+from enum import IntEnum
 from ..utils import *
 from ..malloc import Heap
 
@@ -11,6 +12,10 @@ class R_ERROR(Register32):
     FLAG = 31
     STREAM = 27, 24
     CODE = 23, 0
+    NO_DAPF_MATCH = 11
+    WRITE = 10
+    SUBPAGE_PROT = 7
+    PTE_READ_FAULT = 6
     READ_FAULT = 4
     WRITE_FAULT = 3
     NO_PTE = 2
@@ -36,13 +41,25 @@ class R_REMAP(Register32):
     MAP1 = 15, 8
     MAP0 = 7, 0
 
-class PTE(Register64):
-    OFFSET = 36, 14
-    VALID2 = 1
+class PTE_T8020(Register64):
+    SP_START = 63, 52
+    SP_END = 51, 40
+    OFFSET = 39, 14
+    SP_PROT_DIS = 1
+    VALID = 0
+
+class PTE_T6000(Register64):
+    SP_START = 63, 52
+    SP_END = 51, 40
+    OFFSET = 39, 10
+    SP_PROT_DIS = 1
     VALID = 0
 
 class R_CONFIG(Register32):
     LOCK = 15
+
+class R_DAPF_LOCK(Register32):
+    LOCK = 0
 
 class DARTRegs(RegMap):
     STREAM_COMMAND  = 0x20, R_STREAM_COMMAND
@@ -53,11 +70,17 @@ class DARTRegs(RegMap):
     CONFIG          = 0x60, R_CONFIG
     REMAP           = irange(0x80, 4, 4), R_REMAP
 
+    DAPF_LOCK       = 0xf0, R_DAPF_LOCK
     UNK1            = 0xf8, Register32
     ENABLED_STREAMS = 0xfc, Register32
 
     TCR             = irange(0x100, 16, 4), R_TCR
     TTBR            = (irange(0x200, 16, 16), range(0, 16, 4)), R_TTBR
+
+PTE_TYPES = {
+    "dart,t8020": PTE_T8020,
+    "dart,t6000": PTE_T6000,
+}
 
 class DART(Reloadable):
     PAGE_BITS = 14
@@ -72,7 +95,7 @@ class DART(Reloadable):
     Lx_SIZE = (1 << IDX_BITS)
     IDX_MASK = Lx_SIZE - 1
 
-    def __init__(self, iface, regs, util=None, iova_range=(0x80000000, 0x90000000)):
+    def __init__(self, iface, regs, util=None, compat="dart,t8020", iova_range=(0x80000000, 0x90000000)):
         self.iface = iface
         self.regs = regs
         self.u = util
@@ -80,6 +103,15 @@ class DART(Reloadable):
         self.enabled_streams = regs.ENABLED_STREAMS.val
         self.iova_allocator = [Heap(iova_range[0], iova_range[1], self.PAGE_SIZE)
                                for i in range(16)]
+        self.ptecls = PTE_TYPES[compat]
+
+    @classmethod
+    def from_adt(cls, u, path):
+        dart_addr = u.adt[path].get_reg(0)[0]
+        regs = DARTRegs(u, dart_addr)
+        dart = cls(u.iface, regs, u)
+        dart.ptecls = PTE_TYPES[u.adt[path].compatible[0]]
+        return dart
 
     def ioread(self, stream, base, size):
         if size == 0:
@@ -161,12 +193,12 @@ class DART(Reloadable):
 
             cached, l1 = self.get_pt(ttbr.ADDR << 12)
             l1idx = (page >> self.L1_OFF) & self.IDX_MASK
-            l1pte = PTE(l1[l1idx])
+            l1pte = self.ptecls(l1[l1idx])
             if not l1pte.VALID:
                 l2addr = self.u.memalign(self.PAGE_SIZE, self.PAGE_SIZE)
                 self.pt_cache[l2addr] = [0] * self.Lx_SIZE
-                l1pte = PTE(
-                    OFFSET=l2addr >> self.PAGE_BITS, VALID=1, VALID2=1)
+                l1pte = self.ptecls(
+                    OFFSET=l2addr >> self.PAGE_BITS, VALID=1, SP_PROT_DIS=1)
                 l1[l1idx] = l1pte.value
                 dirty.add(ttbr.ADDR << 12)
             else:
@@ -175,8 +207,9 @@ class DART(Reloadable):
             dirty.add(l1pte.OFFSET << self.PAGE_BITS)
             cached, l2 = self.get_pt(l2addr)
             l2idx = (page >> self.L2_OFF) & self.IDX_MASK
-            self.pt_cache[l2addr][l2idx] = PTE(
-                OFFSET=paddr >> self.PAGE_BITS, VALID=1, VALID2=1).value
+            self.pt_cache[l2addr][l2idx] = self.ptecls(
+                SP_START=0, SP_END=0xfff,
+                OFFSET=paddr >> self.PAGE_BITS, VALID=1, SP_PROT_DIS=1).value
 
         for page in dirty:
             self.flush_pt(page)
@@ -192,6 +225,8 @@ class DART(Reloadable):
 
         if tcr.BYPASS_DART or not tcr.TRANSLATE_ENABLE:
             raise Exception(f"Unknown DART mode {tcr}")
+
+        start = start & 0xffffffff
 
         start_page = align_down(start, self.PAGE_SIZE)
         start_off = start - start_page
@@ -210,19 +245,19 @@ class DART(Reloadable):
                 continue
 
             cached, l1 = self.get_pt(ttbr.ADDR << 12)
-            l1pte = PTE(l1[(page >> self.L1_OFF) & self.IDX_MASK])
+            l1pte = self.ptecls(l1[(page >> self.L1_OFF) & self.IDX_MASK])
             if not l1pte.VALID and cached:
                 cached, l1 = self.get_pt(ttbr.ADDR << 12, uncached=True)
-                l1pte = PTE(l1[(page >> self.L1_OFF) & self.IDX_MASK])
+                l1pte = self.ptecls(l1[(page >> self.L1_OFF) & self.IDX_MASK])
             if not l1pte.VALID:
                 pages.append(None)
                 continue
 
             cached, l2 = self.get_pt(l1pte.OFFSET << self.PAGE_BITS)
-            l2pte = PTE(l2[(page >> self.L2_OFF) & self.IDX_MASK])
+            l2pte = self.ptecls(l2[(page >> self.L2_OFF) & self.IDX_MASK])
             if not l2pte.VALID and cached:
                 cached, l2 = self.get_pt(l1pte.OFFSET << self.PAGE_BITS, uncached=True)
-                l2pte = PTE(l2[(page >> self.L2_OFF) & self.IDX_MASK])
+                l2pte = self.ptecls(l2[(page >> self.L2_OFF) & self.IDX_MASK])
             if not l2pte.VALID:
                 pages.append(None)
                 continue
@@ -272,11 +307,18 @@ class DART(Reloadable):
             for j in range(4):
                 self.regs.TTBR[i, j].reg = R_TTBR(VALID = 0)
 
+        self.regs.ERROR.val = 0xffffffff
         self.regs.UNK1.val = 0
         self.regs.ENABLED_STREAMS.val = 0
         self.enabled_streams = 0
 
         self.invalidate_streams()
+
+    def show_error(self):
+        if self.regs.ERROR.reg.FLAG:
+            print(f"ERROR: {self.regs.ERROR.reg!s}")
+            print(f"ADDR: {self.regs.ERROR_ADDR_HI.val:#x}:{self.regs.ERROR_ADDR_LO.val:#x}")
+            self.regs.ERROR.val = 0xffffffff
 
     def invalidate_streams(self, streams=0xffffffff):
         self.regs.STREAM_SELECT.val = streams
@@ -290,7 +332,8 @@ class DART(Reloadable):
 
         unmapped = False
         for i, pte in enumerate(tbl):
-            if not (pte & 0b01):
+            pte = self.ptecls(pte)
+            if not pte.VALID:
                 if not unmapped:
                     print("  ...")
                     unmapped = True
@@ -298,14 +341,18 @@ class DART(Reloadable):
 
             unmapped = False
 
-            print("    page (%d): %08x ... %08x -> %016x [%s]" % (i, base + i*0x4000, base + (i+1)*0x4000, pte&~0b11, bin(pte&0b11)))
+            print("    page (%d): %08x ... %08x -> %016x [%d%d]" % (
+                i, base + i*0x4000, base + (i+1)*0x4000,
+                pte.OFFSET << self.PAGE_BITS, pte.SP_PROT_DIS, pte.VALID))
+            print(hex(pte.value))
 
     def dump_table(self, base, l1_addr):
         cached, tbl = self.get_pt(l1_addr)
 
         unmapped = False
         for i, pte in enumerate(tbl):
-            if not (pte & 0b01):
+            pte = self.ptecls(pte)
+            if not pte.VALID:
                 if not unmapped:
                     print("  ...")
                     unmapped = True
@@ -313,8 +360,10 @@ class DART(Reloadable):
 
             unmapped = False
 
-            print("  table (%d): %08x ... %08x -> %016x [%s]" % (i, base + i*0x2000000, base + (i+1)*0x2000000, pte&~0b11, bin(pte&0b11)))
-            self.dump_table2(base + i*0x2000000, pte & ~0b11)
+            print("  table (%d): %08x ... %08x -> %016x [%d%d]" % (
+                i, base + i*0x2000000, base + (i+1)*0x2000000,
+                pte.OFFSET << self.PAGE_BITS, pte.SP_PROT_DIS, pte.VALID))
+            self.dump_table2(base + i*0x2000000, pte.OFFSET << self.PAGE_BITS)
 
     def dump_ttbr(self, idx, ttbr):
         if not ttbr.VALID:

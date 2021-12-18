@@ -334,7 +334,7 @@ class LazyADT:
     def __delattr__(self, attr):
         return delattr(self._adt, attr)
     def __str__(self, t=""):
-        return gstr(self._adt)
+        return str(self._adt)
     def __iter__(self):
         return iter(self._adt)
 
@@ -428,9 +428,9 @@ class GuardedHeap:
             malloc, memalign, free = malloc.malloc, malloc.memalign, malloc.free
 
         self.ptrs = set()
-        self.malloc = malloc
-        self.memalign = memalign
-        self.free = free
+        self._malloc = malloc
+        self._memalign = memalign
+        self._free = free
 
     def __enter__(self):
         return self
@@ -440,37 +440,43 @@ class GuardedHeap:
         return False
 
     def malloc(self, sz):
-        ptr = self.malloc(sz)
+        ptr = self._malloc(sz)
         self.ptrs.add(ptr)
         return ptr
 
     def memalign(self, align, sz):
-        ptr = self.memalign(align, sz)
+        ptr = self._memalign(align, sz)
         self.ptrs.add(ptr)
         return ptr
 
     def free(self, ptr):
         self.ptrs.remove(ptr)
-        self.free(ptr)
+        self._free(ptr)
 
     def free_all(self):
         for ptr in self.ptrs:
-            self.free(ptr)
+            self._free(ptr)
         self.ptrs = set()
 
 def bootstrap_port(iface, proxy):
     to = iface.dev.timeout
-    do_baud = True
+    iface.dev.timeout = 0.15
     try:
         do_baud = proxy.iodev_whoami() == IODEV.UART
     except ProxyCommandError:
-        pass
+        # Old m1n1 version -- assume non-USB serial link, force baudrate adjust
+        do_baud = True
+    except UartTimeout:
+        # Assume the receiving end is already at 1500000
+        iface.dev.baudrate = 1500000
+        do_baud = False
+
     if do_baud:
         try:
-            iface.dev.timeout = 0.15
             iface.nop()
             proxy.set_baud(1500000)
         except UartTimeout:
+            # May fail even if the setting did get applied; checked by the .nop next
             iface.dev.baudrate = 1500000
 
     iface.nop()

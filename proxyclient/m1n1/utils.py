@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 from enum import Enum
 import bisect, copy, heapq, importlib, sys, itertools, time, os, functools, struct, re
-from construct import Adapter, Int64ul, Int32ul, Int16ul, Int8ul, ExprAdapter
+from construct import Adapter, Int64ul, Int32ul, Int16ul, Int8ul, ExprAdapter, GreedyRange, ListContainer, StopFieldError, ExplicitError, StreamError
 
 __all__ = ["FourCC"]
 
@@ -70,6 +70,24 @@ def unhex(s):
 FourCC = ExprAdapter(Int32ul,
                      lambda d, ctx: d.to_bytes(4, "big").decode("latin-1"),
                      lambda d, ctx: int.from_bytes(d.encode("latin-1"), "big"))
+
+class SafeGreedyRange(GreedyRange):
+    def __init__(self, subcon, discard=False):
+        super().__init__(subcon)
+        self.discard = discard
+
+    def _parse(self, stream, context, path):
+        discard = self.discard
+        obj = ListContainer()
+        try:
+            for i in itertools.count():
+                context._index = i
+                e = self.subcon._parsereport(stream, context, path)
+                if not discard:
+                    obj.append(e)
+        except StreamError:
+            pass
+        return obj
 
 class ReloadableMeta(type):
     def __new__(cls, name, bases, dct):
@@ -216,8 +234,12 @@ class Register(Reloadable, metaclass=RegisterMeta):
 
         return val
 
+    @property
+    def fields(self):
+        return {k: getattr(self, k) for k in self._fields_list}
+
     def str_fields(self):
-        return f"{', '.join(f'{k}={self._field_val(k)}' for k in self._fields_list)}"
+        return ', '.join(f'{k}={self._field_val(k)}' for k in self._fields_list)
 
     def __str__(self):
         return f"0x{self._value:x} ({self.str_fields()})"
@@ -399,6 +421,9 @@ class RangeMap(Reloadable):
             yield range(self.__start[pos], self.__end[pos] + 1), self.__value[pos]
 
     def replace(self, zone, val):
+        zone = self.__zone(zone)
+        if zone.start == zone.stop:
+            return
         start, stop = self._overlap_range(zone, True)
         self.__start = self.__start[:start] + [zone.start] + self.__start[stop:]
         self.__end = self.__end[:start] + [zone.stop - 1] + self.__end[stop:]
@@ -410,6 +435,9 @@ class RangeMap(Reloadable):
             self.__end = []
             self.__value = []
         else:
+            zone = self.__zone(zone)
+            if zone.start == zone.stop:
+                return
             start, stop = self._overlap_range(zone, True)
             self.__start = self.__start[:start] + self.__start[stop:]
             self.__end = self.__end[:start] + self.__end[stop:]
@@ -870,6 +898,7 @@ if __name__ == "__main__":
     a = BoolRangeMap()
     a.set(range(0, 2))
     a.set(range(4, 6))
+    a.set(range(5, 5))
     a.clear(range(3, 5))
     expect = [True, True, False, False, False, True, False]
     for i,j in enumerate(expect):

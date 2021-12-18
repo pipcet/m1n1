@@ -15,7 +15,7 @@
     } while (0)
 #endif
 
-#define BIT(x)                 (1L << (x))
+#define BIT(x)                 (1UL << (x))
 #define MASK(x)                (BIT(x) - 1)
 #define GENMASK(msb, lsb)      ((BIT((msb + 1) - (lsb)) - 1) << (lsb))
 #define _FIELD_LSB(field)      ((field) & ~(field - 1))
@@ -346,6 +346,7 @@ extern char _payload_end[];
  * These functions are guaranteed to copy by reading from src and writing to dst
  * in <n>-bit units If size is not aligned, the remaining bytes are not copied
  */
+void memcpy128(void *dst, void *src, size_t size);
 void memset64(void *dst, u64 value, size_t size);
 void memcpy64(void *dst, void *src, size_t size);
 void memset32(void *dst, u32 value, size_t size);
@@ -360,19 +361,26 @@ void put_simd_state(void *state);
 
 void hexdump(const void *d, size_t len);
 void regdump(u64 addr, size_t len);
-int sprintf(char *str, const char *fmt, ...);
+int snprintf(char *str, size_t size, const char *fmt, ...);
 int debug_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void udelay(u32 d);
 void reboot(void) __attribute__((noreturn));
 void flush_and_reboot(void) __attribute__((noreturn));
 
+#define SPINLOCK_ALIGN 64
+
 typedef struct {
     s64 lock;
     int count;
-} spinlock_t ALIGNED(64);
+} spinlock_t ALIGNED(SPINLOCK_ALIGN);
 
-#define DECLARE_SPINLOCK(n) spinlock_t n = {-1, 0}
+#define SPINLOCK_INIT                                                                              \
+    {                                                                                              \
+        -1, 0                                                                                      \
+    }
+#define DECLARE_SPINLOCK(n) spinlock_t n = SPINLOCK_INIT;
 
+void spin_init(spinlock_t *lock);
 void spin_lock(spinlock_t *lock);
 void spin_unlock(spinlock_t *lock);
 
@@ -403,6 +411,8 @@ struct vector_args {
     u64 args[4];
     bool restore_logo;
 };
+
+extern u32 board_id, chip_id;
 
 extern struct vector_args next_stage;
 

@@ -2,7 +2,7 @@
 import itertools, fnmatch
 from construct import *
 
-from .utils import AddrLookup, FourCC
+from .utils import AddrLookup, FourCC, SafeGreedyRange
 
 __all__ = ["load_adt"]
 
@@ -19,7 +19,7 @@ ADTNodeStruct = Struct(
     "children" / Array(this.child_count, LazyBound(lambda: ADTNodeStruct))
 )
 
-ADTStringList = GreedyRange(CString("ascii"))
+ADTStringList = SafeGreedyRange(CString("ascii"))
 
 ADT2Tuple = Array(2, Hex(Int64ul))
 ADT3Tuple = Array(3, Hex(Int64ul))
@@ -27,7 +27,7 @@ ADT3Tuple = Array(3, Hex(Int64ul))
 Function = Struct(
     "phandle" / Int32ul,
     "name" / FourCC,
-    "args" / GreedyRange(Int32ul),
+    "args" / SafeGreedyRange(Int32ul),
 )
 
 STD_PROPERTIES = {
@@ -37,32 +37,57 @@ STD_PROPERTIES = {
     "model": CString("ascii"),
     "#size-cells": Int32ul,
     "#address-cells": Int32ul,
-    "clock-ids": GreedyRange(Int32ul),
-    "clock-gates": GreedyRange(Int32ul),
-    "power-gates": GreedyRange(Int32ul),
+    "clock-ids": SafeGreedyRange(Int32ul),
+    "clock-gates": SafeGreedyRange(Int32ul),
+    "power-gates": SafeGreedyRange(Int32ul),
 }
 
-PMGRPSRegs = GreedyRange(Struct(
+PMAPIORanges = SafeGreedyRange(Struct(
+    "addr" / Hex(Int64ul),
+    "size" / Hex(Int64ul),
+    "flags" / Hex(Int32ul),
+    "name" / FourCC,
+))
+
+PMGRPSRegs = SafeGreedyRange(Struct(
     "reg" / Int32ul,
     "offset" / Hex(Int32ul),
     "mask" / Hex(Int32ul),
 ))
 
-PMGRPWRGateRegs = GreedyRange(Struct(
+PMGRPerfRegs = SafeGreedyRange(Struct(
+    "reg" / Int32ul,
+    "offset" / Hex(Int32ul),
+    "size" / Hex(Int32ul),
+    "unk" / Int32ul,
+))
+
+PMGRPWRGateRegs = SafeGreedyRange(Struct(
     "reg" / Int32ul,
     "offset" / Hex(Int32ul),
     "mask" / Hex(Int32ul),
     "unk" / Hex(Int32ul),
 ))
 
-PMGRDevices = GreedyRange(Struct(
-    "flags" / Int8ul,
+PMGRDeviceFlags = BitStruct(
+    "b7" / Flag,
+    "b6" / Flag,
+    "perf" / Flag,
+    "no_ps" / Flag,
+    "critical" / Flag,
+    "b2" / Flag,
+    "notify_pmp" / Flag,
+    "on" / Flag,
+)
+
+PMGRDevices = SafeGreedyRange(Struct(
+    "flags" / PMGRDeviceFlags,
     "unk1_0" / Int8ul,
     "unk1_1" / Int8ul,
-    Const(0, Int8ul),
+    "unk1_2" / Int8ul,
     "parents" / Array(2, Int16ul),
-    "ctl_idx" / Int8ul,
-    "ctl_block" / Int8ul,
+    "perf_idx" / Int8ul,
+    "perf_block" / Int8ul,
     "psidx" / Int8ul,
     "psreg" / Int8ul,
     "unk2_0" / Int16ul,
@@ -76,73 +101,91 @@ PMGRDevices = GreedyRange(Struct(
     "name" / PaddedString(16, "ascii")
 ))
 
-PMGRClocks = GreedyRange(Struct(
-    "ctl_idx" / Int8ul,
-    "ctl_block" / Int8ul,
+PMGRClocks = SafeGreedyRange(Struct(
+    "perf_idx" / Int8ul,
+    "perf_block" / Int8ul,
     "unk" / Int8ul,
     "id" / Int8ul,
     Const(0, Int32ul),
     "name" / PaddedString(16, "ascii"),
 ))
 
-PMGRPowerDomains = GreedyRange(Struct(
+PMGRPowerDomains = SafeGreedyRange(Struct(
     "unk" / Const(0, Int8ul),
-    "ctl_idx" / Int8ul,
-    "ctl_block" / Int8ul,
+    "perf_idx" / Int8ul,
+    "perf_block" / Int8ul,
     "id" / Int8ul,
     Const(0, Int32ul),
     "name" / PaddedString(16, "ascii"),
 ))
 
-PMGRDeviceBridges = GreedyRange(Struct(
+PMGRDeviceBridges = SafeGreedyRange(Struct(
     "idx" / Int32ub,
     "subdevs" / HexDump(Bytes(0x48)),
 ))
 
-PMGREvents = GreedyRange(Struct(
+PMGREvents = SafeGreedyRange(Struct(
     "unk1" / Int8ul,
     "unk2" / Int8ul,
     "unk3" / Int8ul,
     "id" / Int8ul,
-    "ctl2_idx" / Int8ul,
-    "ctl2_block" / Int8ul,
-    "ctl_idx" / Int8ul,
-    "ctl_block" / Int8ul,
+    "perf2_idx" / Int8ul,
+    "perf2_block" / Int8ul,
+    "perf_idx" / Int8ul,
+    "perf_block" / Int8ul,
     "name" / PaddedString(16, "ascii"),
 ))
 
 DEV_PROPERTIES = {
     "pmgr": {
-        "clusters": GreedyRange(Int32ul),
-        "ps-regs": PMGRPSRegs,
-        "pwrgate-regs": PMGRPWRGateRegs,
-        "devices": PMGRDevices,
-        "power-domains": PMGRPowerDomains,
-        "clocks": PMGRClocks,
-        "device-bridges": PMGRDeviceBridges,
-        "voltage-states*": GreedyRange(Int32ul),
-        "events": PMGREvents,
+        "*": {
+            "clusters": SafeGreedyRange(Int32ul),
+            "devices": PMGRDevices,
+            "ps-regs": PMGRPSRegs,
+            "perf-regs": PMGRPerfRegs,
+            "pwrgate-regs": PMGRPWRGateRegs,
+            "power-domains": PMGRPowerDomains,
+            "clocks": PMGRClocks,
+            "device-bridges": PMGRDeviceBridges,
+            "voltage-states*": SafeGreedyRange(Int32ul),
+            "events": PMGREvents,
+        }
     },
     "clpc": {
-        "events": GreedyRange(Int32ul),
-        "devices": GreedyRange(Int32ul),
+        "*": {
+            "events": SafeGreedyRange(Int32ul),
+            "devices": SafeGreedyRange(Int32ul),
+        }
     },
     "soc-tuner": {
-        "device-set-*": GreedyRange(Int32ul),
-        "mcc-configs": GreedyRange(Int32ul),
+        "*": {
+            "device-set-*": SafeGreedyRange(Int32ul),
+            "mcc-configs": SafeGreedyRange(Int32ul),
+        }
     },
     "mcc": {
-        "dramcfg-data": Array(2, Hex(Int32ul)),
-        "config-data": GreedyRange(Int32ul),
+        "*": {
+            "dramcfg-data": SafeGreedyRange(Int32ul),
+            "config-data": SafeGreedyRange(Int32ul),
+        }
     },
     "stockholm-spmi": {
-        "required-functions": ADTStringList,
+        "*": {
+            "required-functions": ADTStringList,
+        },
     },
     "arm-io": {
-        "clock-frequencies": GreedyRange(Int32ul),
-        "clock-frequencies-regs": GreedyRange(Hex(Int64ul)),
-        "clock-frequencies-nclk": GreedyRange(Int32ul),
+        "*": {
+            "clock-frequencies": SafeGreedyRange(Int32ul),
+            "clock-frequencies-regs": SafeGreedyRange(Hex(Int64ul)),
+            "clock-frequencies-nclk": SafeGreedyRange(Int32ul),
+        },
     },
+    "defaults": {
+        "*": {
+            "pmap-io-ranges": PMAPIORanges,
+        }
+    }
 }
 
 def parse_prop(node, path, node_name, name, v, is_template=False):
@@ -151,12 +194,31 @@ def parse_prop(node, path, node_name, name, v, is_template=False):
     if is_template:
         t = CString("ascii")
 
-    dev_props = DEV_PROPERTIES.get(path, DEV_PROPERTIES.get(node_name, {}))
+    dev_props = DEV_PROPERTIES.get(path, DEV_PROPERTIES.get(node_name, None))
 
-    for k, pt in dev_props.items():
-        if fnmatch.fnmatch(name, k):
-            t = pt
-            break
+    possible_match = False
+    if dev_props:
+        for compat_match, cprops in dev_props.items():
+            for k, pt in cprops.items():
+                if fnmatch.fnmatch(name, k):
+                    possible_match = True
+                    break
+
+    if possible_match:
+        try:
+            compat = node.compatible[0]
+        except AttributeError:
+            compat = ""
+
+        for compat_match, cprops in dev_props.items():
+            if fnmatch.fnmatch(compat, compat_match):
+                for k, pt in cprops.items():
+                    if fnmatch.fnmatch(name, k):
+                        t = pt
+                        break
+                else:
+                    continue
+                break
 
     if v == b'' or v is None:
         return None, None
@@ -177,20 +239,20 @@ def parse_prop(node, path, node_name, name, v, is_template=False):
             ac, sc = node._parent.address_cells, node._parent.size_cells
             at = Hex(Int64ul) if ac == 2 else Array(ac, Hex(Int32ul))
             st = Hex(Int64ul) if sc == 2 else Array(sc, Hex(Int32ul))
-            t = GreedyRange(Struct("addr" / at, "size" / st))
+            t = SafeGreedyRange(Struct("addr" / at, "size" / st))
             if len(v) % ((ac + sc) * 4):
                 t = None
 
     elif name == "ranges":
         try:
             ac, sc = node.address_cells, node.size_cells
-        except KeyError:
+        except AttributeError:
             return None, v
         pac, _ = node._parent.address_cells, node._parent.size_cells
         at = Hex(Int64ul) if ac == 2 else Array(ac, Hex(Int32ul))
         pat = Hex(Int64ul) if pac == 2 else Array(pac, Hex(Int32ul))
         st = Hex(Int64ul) if sc == 2 else Array(sc, Hex(Int32ul))
-        t = GreedyRange(Struct("bus_addr" / pat, "parent_addr" / at, "size" / st))
+        t = SafeGreedyRange(Struct("bus_addr" / at, "parent_addr" / pat, "size" / st))
 
     elif name == "interrupts":
         # parse "interrupts" as Array of Int32ul, wrong for nodes whose
@@ -267,7 +329,7 @@ class ADTNode:
                     self._types[p.name] = t, is_template
                     self._properties[p.name] = v
                 except Exception as e:
-                    print(f"Exception parsing {path}.{p.name} value {p.value.hex()}:")
+                    print(f"Exception parsing {path}.{p.name} value {p.value.hex()}:", file=sys.stderr)
                     raise
 
             # Second pass
@@ -352,15 +414,24 @@ class ADTNode:
 
     @property
     def address_cells(self):
-        return self._properties["#address-cells"]
+        try:
+            return self._properties["#address-cells"]
+        except KeyError:
+            raise AttributeError("#address-cells")
 
     @property
     def size_cells(self):
-        return self._properties["#size-cells"]
+        try:
+            return self._properties["#size-cells"]
+        except KeyError:
+            raise AttributeError("#size-cells")
 
     @property
     def interrupt_cells(self):
-        return self._properties["#interrupt-cells"]
+        try:
+            return self._properties["#interrupt-cells"]
+        except KeyError:
+            raise AttributeError("#interrupt-cells")
 
     def _fmt_prop(self, k, v):
         t, is_template = self._types[k]

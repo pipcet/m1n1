@@ -5,5 +5,6 @@
 
 void wdt_enable(void);
 void wdt_disable(void);
+void wdt_reboot(void);
 
 #endif

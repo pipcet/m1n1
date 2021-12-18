@@ -4,6 +4,7 @@
 #include "assert.h"
 #include "iodev.h"
 #include "malloc.h"
+#include "memory.h"
 #include "string.h"
 #include "types.h"
 #include "utils.h"
@@ -40,13 +41,16 @@ static struct {
 extern u8 _binary_build_font_bin_start[];
 extern u8 _binary_build_font_retina_bin_start[];
 
+void fb_update(void)
+{
+}
 static void fb_clear_font_row(u32 row)
 {
     const u32 row_size = (console.margin.cols + console.cursor.max_col) * console.font.width * 4;
     const u32 ystart = (console.margin.rows + row) * console.font.height * fb.stride;
 
     for (u32 y = 0; y < console.font.height; ++y)
-        memset(fb.ptr + ystart + y * fb.stride, 0, row_size);
+        memset32(fb.ptr + ystart + y * fb.stride, 0, row_size);
 }
 
 static void fb_move_font_row(u32 dst, u32 src)
@@ -59,7 +63,7 @@ static void fb_move_font_row(u32 dst, u32 src)
     ydst *= fb.stride;
 
     for (u32 y = 0; y < console.font.height; ++y)
-        memcpy(fb.ptr + ydst + y * fb.stride, fb.ptr + ysrc + y * fb.stride, row_size);
+        memcpy32(fb.ptr + ydst + y * fb.stride, fb.ptr + ysrc + y * fb.stride, row_size);
 
     fb_clear_font_row(src);
 }
@@ -96,6 +100,7 @@ void fb_blit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride)
             fb_set_pixel(x + j, y + i, color);
         }
     }
+    fb_update();
 }
 
 void fb_unblit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride)
@@ -118,12 +123,14 @@ void fb_fill(u32 x, u32 y, u32 w, u32 h, rgb_t color)
     u32 c = rgb2pixel_30(color);
     for (u32 i = 0; i < h; i++)
         memset32(&fb.ptr[x + (y + i) * fb.stride], c, w * 4);
+    fb_update();
 }
 
 void fb_clear(rgb_t color)
 {
     u32 c = rgb2pixel_30(color);
     memset32(fb.ptr, c, fb.stride * fb.height * 4);
+    fb_update();
 }
 
 void fb_display_logo(void)
@@ -204,6 +211,7 @@ void fb_console_reserve_lines(u32 n)
 {
     if ((console.cursor.max_row - console.cursor.row) <= n)
         fb_console_scroll(1 + n - (console.cursor.max_row - console.cursor.row));
+    fb_update();
 }
 
 ssize_t fb_console_write(const char *bfr, size_t len)
@@ -217,6 +225,8 @@ ssize_t fb_console_write(const char *bfr, size_t len)
         fb_putchar(*bfr++);
         wrote++;
     }
+
+    fb_update();
 
     return wrote;
 }
@@ -241,22 +251,34 @@ const struct iodev_ops iodev_fb_ops = {
 struct iodev iodev_fb = {
     .ops = &iodev_fb_ops,
     .usage = USAGE_CONSOLE,
+    .lock = SPINLOCK_INIT,
 };
 
 static void fb_clear_console(void)
 {
     for (u32 row = 0; row < console.cursor.max_row; ++row)
         fb_clear_font_row(row);
+
+    console.cursor.col = 0;
+    console.cursor.row = 0;
+    fb_update();
 }
 
 void fb_init(void)
 {
-    fb.ptr = (void *)cur_boot_args.video.base;
+    fb.hwptr = (void *)cur_boot_args.video.base;
     fb.stride = cur_boot_args.video.stride / 4;
     fb.width = cur_boot_args.video.width;
     fb.height = cur_boot_args.video.height;
     fb.depth = cur_boot_args.video.depth & FB_DEPTH_MASK;
+    fb.size = cur_boot_args.video.stride * cur_boot_args.video.height;
     printf("fb init: %dx%d (%d) [s=%d] @%p\n", fb.width, fb.height, fb.depth, fb.stride, fb.ptr);
+
+    mmu_add_mapping(cur_boot_args.video.base, cur_boot_args.video.base, ALIGN_UP(fb.size, 0x4000),
+                    MAIR_IDX_FRAMEBUFFER, PERM_RW);
+
+    fb.ptr = malloc(fb.size);
+    memcpy(fb.ptr, fb.hwptr, fb.size);
 
     if (cur_boot_args.video.depth & FB_DEPTH_FLAG_RETINA) {
         console.font.ptr = _binary_build_font_retina_bin_start;

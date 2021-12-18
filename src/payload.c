@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 
 #include "payload.h"
+#include "adt.h"
 #include "assert.h"
 #include "heapblock.h"
 #include "kboot.h"
@@ -14,15 +15,16 @@
 // Kernels must be 2MB aligned
 #define KERNEL_ALIGN (2 << 20)
 
-const u8 gz_magic[] = {0x1f, 0x8b};
-const u8 xz_magic[] = {0xfd, '7', 'z', 'X', 'Z', 0x00};
-const u8 fdt_magic[] = {0xd0, 0x0d, 0xfe, 0xed};
-const u8 kernel_magic[] = {'A', 'R', 'M', 0x64};   // at 0x38
-const u8 cpio_magic[] = {'0', '7', '0', '7', '0'}; // '1' or '2' next
-const u8 empty[] = {0, 0, 0, 0};
+static const u8 gz_magic[] = {0x1f, 0x8b};
+static const u8 xz_magic[] = {0xfd, '7', 'z', 'X', 'Z', 0x00};
+static const u8 fdt_magic[] = {0xd0, 0x0d, 0xfe, 0xed};
+static const u8 kernel_magic[] = {'A', 'R', 'M', 0x64};   // at 0x38
+static const u8 cpio_magic[] = {'0', '7', '0', '7', '0'}; // '1' or '2' next
+static const u8 empty[] = {0, 0, 0, 0};
 
-struct kernel_header *kernel = NULL;
-void *fdt = NULL;
+static char expect_compatible[256];
+static struct kernel_header *kernel = NULL;
+static void *fdt = NULL;
 
 static void *load_one_payload(void *start, size_t size);
 
@@ -91,9 +93,12 @@ static void *decompress_xz(void *p, size_t size)
 
 static void *load_fdt(void *p, size_t size)
 {
-    fdt = p;
-    assert(!size || size == fdt_totalsize(fdt));
-    return ((u8 *)p) + fdt_totalsize(fdt);
+    if (fdt_node_check_compatible(p, 0, expect_compatible) == 0) {
+        printf("Found a devicetree for %s at %p\n", expect_compatible, p);
+        fdt = p;
+    }
+    assert(!size || size == fdt_totalsize(p));
+    return ((u8 *)p) + fdt_totalsize(p);
 }
 
 static void *load_cpio(void *p, size_t size)
@@ -135,6 +140,35 @@ static void *load_kernel(void *p, size_t size)
     }
 }
 
+#define MAX_VAR_NAME 32
+#define MAX_VAR_SIZE 1024
+
+#define IS_VAR(x) !strncmp((char *)*p, x, strlen(x))
+
+static bool check_var(u8 **p)
+{
+    char *val = memchr(*p, '=', MAX_VAR_NAME + 1);
+    if (!val)
+        return false;
+
+    val++;
+
+    char *end = memchr(val, '\n', MAX_VAR_SIZE + 1);
+    if (!end)
+        return false;
+
+    if (IS_VAR("boot-args=")) {
+        *end = 0;
+        kboot_set_bootargs(val);
+    } else {
+        return false;
+    }
+
+    printf("Found a variable at %p: %s\n", *p, (char *)*p);
+    *p = (u8 *)(end + 1);
+    return true;
+}
+
 static void *load_one_payload(void *start, size_t size)
 {
     u8 *p = start;
@@ -149,7 +183,6 @@ static void *load_one_payload(void *start, size_t size)
         printf("Found an XZ compressed payload at %p\n", p);
         return decompress_xz(p, size);
     } else if (!memcmp(p, fdt_magic, sizeof fdt_magic)) {
-        printf("Found a devicetree at %p\n", p);
         return load_fdt(p, size);
     } else if (!memcmp(p, cpio_magic, sizeof cpio_magic)) {
         printf("Found a cpio initramfs at %p\n", p);
@@ -157,6 +190,8 @@ static void *load_one_payload(void *start, size_t size)
     } else if (!memcmp(p + 0x38, kernel_magic, sizeof kernel_magic)) {
         printf("Found a kernel at %p\n", p);
         return load_kernel(p, size);
+    } else if (check_var(&p)) {
+        return p;
     } else if (!memcmp(p, empty, sizeof empty)) {
         printf("No more payloads at %p\n", p);
         return NULL;
@@ -168,6 +203,20 @@ static void *load_one_payload(void *start, size_t size)
 
 int payload_run(void)
 {
+    const char *target = adt_getprop(adt, 0, "target-type", NULL);
+    if (target) {
+        strcpy(expect_compatible, "apple,");
+        char *p = expect_compatible + strlen(expect_compatible);
+        while (*target && p != expect_compatible + sizeof(expect_compatible) - 1) {
+            *p++ = tolower(*target++);
+        }
+        *p = 0;
+        printf("Devicetree compatible value: %s\n", expect_compatible);
+    } else {
+        printf("Cannot find target type! %p %p\n", target, adt);
+        return -1;
+    }
+
     void *p = _payload_start;
 
     while (p)
@@ -177,11 +226,15 @@ int payload_run(void)
         smp_start_secondaries();
 
         if (kboot_prepare_dt(fdt)) {
-            printf("Failed to prepare FDT!");
+            printf("Failed to prepare FDT!\n");
             return -1;
         }
 
         return kboot_boot(kernel);
+    } else if (kernel && !fdt) {
+        printf("ERROR: Kernel found but no devicetree for %s available.\n", expect_compatible);
+    } else if (!kernel && fdt) {
+        printf("ERROR: Devicetree found but no kernel.\n");
     }
 
     return -1;

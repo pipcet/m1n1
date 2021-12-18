@@ -55,13 +55,13 @@ void regdump(u64 addr, size_t len)
     }
 }
 
-int sprintf(char *buffer, const char *fmt, ...)
+int snprintf(char *buffer, size_t size, const char *fmt, ...)
 {
     va_list args;
     int i;
 
     va_start(args, fmt);
-    i = vsprintf(buffer, fmt, args);
+    i = vsnprintf(buffer, size, fmt, args);
     va_end(args);
     return i;
 }
@@ -87,20 +87,25 @@ void __assert_fail(const char *assertion, const char *file, unsigned int line, c
     flush_and_reboot();
 }
 
-#define AIC_TIMER 0x23b108020
-
 void udelay(u32 d)
 {
-    u32 delay = d * 24;
-    u32 val = read32(AIC_TIMER);
-    while ((read32(AIC_TIMER) - val) < delay)
+    u64 delay = ((u64)d) * mrs(CNTFRQ_EL0) / 1000000;
+    u64 val = mrs(CNTPCT_EL0);
+    while ((mrs(CNTPCT_EL0) - val) < delay)
         ;
+    sysop("isb");
 }
 
 void flush_and_reboot(void)
 {
     iodev_console_flush();
     reboot();
+}
+
+void spin_init(spinlock_t *lock)
+{
+    lock->lock = -1;
+    lock->count = 0;
 }
 
 void spin_lock(spinlock_t *lock)
