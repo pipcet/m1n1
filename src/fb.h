@@ -7,12 +7,10 @@
 
 typedef struct {
     u32 *ptr;   /* pointer to the start of the framebuffer */
-    u32 *hwptr; /* pointer to the start of the real framebuffer */
     u32 stride; /* framebuffer stride divided by four (i.e. stride in pixels) */
     u32 depth;  /* framebuffer depth (i.e. bits per pixel) */
     u32 width;  /* width of the framebuffer in pixels */
     u32 height; /* height of the framebuffer in pixels */
-    u32 size;   /* size of the framebuffer in bytes */
 } fb_t;
 
 typedef struct {
@@ -30,7 +28,6 @@ static inline rgb_t int2rgb(u32 c)
 
 void fb_init(void);
 void fb_shutdown(bool restore_logo);
-void fb_update(void);
 
 void fb_blit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride);
 void fb_unblit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride);
