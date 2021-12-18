@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from ..utils import *
 
 __all__ = ["ADMACRegs", "ADMAC"]
@@ -25,14 +26,15 @@ class R_RING(Register32):
 
 class R_CHAN_STATUS(Register32):
     # only raised if the descriptor had NOTIFY set
-    DESC_DONE = 1
+    DESC_DONE = 0
 
     DESC_RING_EMPTY = 4
     REPORT_RING_FULL = 5
 
     # cleared by writing ERR=1 either to TX_DESC_RING or TX_REPORT_RING
-    ERR = 7
+    RING_ERR = 6
 
+    UNK0 = 1
     UNK3 = 8
     UNK4 = 9
     UNK5 = 10
@@ -66,6 +68,11 @@ class ADMACRegs(RegMap):
 
     TX_CTL = (irange(0x8000, 16, 0x400)), R_CHAN_CONTROL
 
+    TX_UNK1 = (irange(0x8040, 16, 0x400)), Register32
+    TX_UNK2 = (irange(0x8054, 16, 0x400)), Register32
+
+    TX_RESIDUE = irange(0x8064, 16, 0x400), Register32
+
     TX_DESC_RING   = irange(0x8070, 16, 0x400), R_RING
     TX_REPORT_RING = irange(0x8074, 16, 0x400), R_RING
 
@@ -74,7 +81,7 @@ class ADMACRegs(RegMap):
 
     # per-channel, per-internal-line
     TX_STATUS  = (irange(0x8010, 16, 0x400), irange(0x0, 4, 0x4)), R_CHAN_STATUS
-    TX_INTMASK = (irange(0x8010, 16, 0x400), irange(0x0, 4, 0x4)), R_CHAN_STATUS
+    TX_INTMASK = (irange(0x8020, 16, 0x400), irange(0x0, 4, 0x4)), R_CHAN_STATUS
 
     # missing: RX variety of registers shifted by +0x200
 
@@ -82,6 +89,13 @@ class ADMACRegs(RegMap):
 class ADMACDescriptorFlags(Register32):
     # whether to raise DESC_DONE in TX_STATUS
     NOTIFY = 16
+
+    # whether to repeat this descriptor ad infinitum
+    #
+    # once a descriptor with this flag is loaded, any descriptors loaded
+    # afterwards are also repeated and nothing short of full power domain reset
+    # seems to revoke that behaviour. this looks like a HW bug.
+    REPEAT = 17
 
     # arbitrary ID propagated into reports
     DESC_ID = 7, 0
@@ -110,7 +124,7 @@ class ADMACDescriptor(Reloadable):
         return ADMACDescriptor(
             seq[0] | seq[1] << 32, # addr
             seq[2], # length (in bytes)
-            seq[3] # flags
+            **ADMACDescriptorFlags(seq[3]).fields
         )
 
 
@@ -153,11 +167,14 @@ class ADMACTXChannel(Reloadable):
         self.dart = parent.dart
         self.regs = parent.regs
         self.ch = channo
-        self.desc_id = 0
+
+        self._desc_id = 0
+        self._submitted = {}
+        self._last_report = None
 
     def reset(self):
-        self.regs.TX_CTL[self.ch].set(RESET_RINGS=1)
-        self.regs.TX_CTL[self.ch].set(RESET_RINGS=0)
+        self.regs.TX_CTL[self.ch].set(RESET_RINGS=1, CLEAR_OF_UF_COUNTERS=1)
+        self.regs.TX_CTL[self.ch].set(RESET_RINGS=0, CLEAR_OF_UF_COUNTERS=0)
 
     def enable(self):
         self.regs.TX_EN.val = 1 << self.ch
@@ -178,7 +195,9 @@ class ADMACTXChannel(Reloadable):
         for piece in desc.ser():
             self.regs.TX_DESC_WRITE[self.ch].val = piece
 
-    def submit(self, data):
+        self._submitted[desc.flags.DESC_ID] = desc
+
+    def submit(self, data, **kwargs):
         assert self.dart is not None
 
         self.poll()
@@ -186,12 +205,12 @@ class ADMACTXChannel(Reloadable):
         buf, iova = self.p._get_buffer(len(data))
         self.iface.writemem(buf, data)
         self.submit_desc(ADMACDescriptor(
-            iova, len(data), DESC_ID=self.desc_id, NOTIFY=1,
+            iova, len(data), DESC_ID=self._desc_id, NOTIFY=1, **kwargs
         ))
-        self.desc_id += 1
+        self._desc_id = (self._desc_id + 1) % 256
 
     def poll(self):
-        if self.regs.TX_STATUS[self.ch, 1].reg.ERR:
+        if self.regs.TX_STATUS[self.ch, 1].reg.RING_ERR:
             if self.p.debug:
                 print(f"TX_STATUS={self.regs.TX_STATUS[self.ch,1].reg} " + \
                       f"REPORT_RING={self.regs.TX_DESC_RING[self.ch]} " + \
@@ -206,7 +225,16 @@ class ADMACTXChannel(Reloadable):
             report = ADMACReport.deser(pieces)
 
             if self.p.debug:
-                print(f"admac: picked up (ch{self.ch}): {report}")
+                if self._last_report is not None and report.flags.DESC_ID in self._submitted:
+                    countval_delta = report.countval - self._last_report.countval
+                    est_rate = 24e6*self._submitted[report.flags.DESC_ID].length/countval_delta/4
+                    est = f"(estimated rate: {est_rate:.2f} dwords/s)"
+                else:
+                    est = ""
+
+                print(f"admac: picked up (ch{self.ch}): {report} {est}")
+
+            self._last_report = report
 
 
 class ADMAC(Reloadable):

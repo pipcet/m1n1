@@ -41,18 +41,18 @@ class R_REMAP(Register32):
     MAP1 = 15, 8
     MAP0 = 7, 0
 
-class PTE_T8103(Register64):
+class PTE_T8020(Register64):
     SP_START = 63, 52
     SP_END = 51, 40
     OFFSET = 39, 14
-    VALID2 = 1
+    SP_PROT_DIS = 1
     VALID = 0
 
 class PTE_T6000(Register64):
     SP_START = 63, 52
     SP_END = 51, 40
     OFFSET = 39, 10
-    VALID2 = 1
+    SP_PROT_DIS = 1
     VALID = 0
 
 class R_CONFIG(Register32):
@@ -77,6 +77,11 @@ class DARTRegs(RegMap):
     TCR             = irange(0x100, 16, 4), R_TCR
     TTBR            = (irange(0x200, 16, 16), range(0, 16, 4)), R_TTBR
 
+PTE_TYPES = {
+    "dart,t8020": PTE_T8020,
+    "dart,t6000": PTE_T6000,
+}
+
 class DART(Reloadable):
     PAGE_BITS = 14
     PAGE_SIZE = 1 << PAGE_BITS
@@ -90,7 +95,7 @@ class DART(Reloadable):
     Lx_SIZE = (1 << IDX_BITS)
     IDX_MASK = Lx_SIZE - 1
 
-    def __init__(self, iface, regs, util=None, iova_range=(0x80000000, 0x90000000)):
+    def __init__(self, iface, regs, util=None, compat="dart,t8020", iova_range=(0x80000000, 0x90000000)):
         self.iface = iface
         self.regs = regs
         self.u = util
@@ -98,7 +103,15 @@ class DART(Reloadable):
         self.enabled_streams = regs.ENABLED_STREAMS.val
         self.iova_allocator = [Heap(iova_range[0], iova_range[1], self.PAGE_SIZE)
                                for i in range(16)]
-        self.ptecls = PTE_T6000
+        self.ptecls = PTE_TYPES[compat]
+
+    @classmethod
+    def from_adt(cls, u, path):
+        dart_addr = u.adt[path].get_reg(0)[0]
+        regs = DARTRegs(u, dart_addr)
+        dart = cls(u.iface, regs, u)
+        dart.ptecls = PTE_TYPES[u.adt[path].compatible[0]]
+        return dart
 
     def ioread(self, stream, base, size):
         if size == 0:
@@ -185,7 +198,7 @@ class DART(Reloadable):
                 l2addr = self.u.memalign(self.PAGE_SIZE, self.PAGE_SIZE)
                 self.pt_cache[l2addr] = [0] * self.Lx_SIZE
                 l1pte = self.ptecls(
-                    OFFSET=l2addr >> self.PAGE_BITS, VALID=1, VALID2=1)
+                    OFFSET=l2addr >> self.PAGE_BITS, VALID=1, SP_PROT_DIS=1)
                 l1[l1idx] = l1pte.value
                 dirty.add(ttbr.ADDR << 12)
             else:
@@ -196,7 +209,7 @@ class DART(Reloadable):
             l2idx = (page >> self.L2_OFF) & self.IDX_MASK
             self.pt_cache[l2addr][l2idx] = self.ptecls(
                 SP_START=0, SP_END=0xfff,
-                OFFSET=paddr >> self.PAGE_BITS, VALID=1, VALID2=1).value
+                OFFSET=paddr >> self.PAGE_BITS, VALID=1, SP_PROT_DIS=1).value
 
         for page in dirty:
             self.flush_pt(page)
@@ -212,6 +225,8 @@ class DART(Reloadable):
 
         if tcr.BYPASS_DART or not tcr.TRANSLATE_ENABLE:
             raise Exception(f"Unknown DART mode {tcr}")
+
+        start = start & 0xffffffff
 
         start_page = align_down(start, self.PAGE_SIZE)
         start_off = start - start_page
@@ -230,7 +245,7 @@ class DART(Reloadable):
                 continue
 
             cached, l1 = self.get_pt(ttbr.ADDR << 12)
-            l1pte = self.pteclsf(l1[(page >> self.L1_OFF) & self.IDX_MASK])
+            l1pte = self.ptecls(l1[(page >> self.L1_OFF) & self.IDX_MASK])
             if not l1pte.VALID and cached:
                 cached, l1 = self.get_pt(ttbr.ADDR << 12, uncached=True)
                 l1pte = self.ptecls(l1[(page >> self.L1_OFF) & self.IDX_MASK])
@@ -328,7 +343,7 @@ class DART(Reloadable):
 
             print("    page (%d): %08x ... %08x -> %016x [%d%d]" % (
                 i, base + i*0x4000, base + (i+1)*0x4000,
-                pte.OFFSET << self.PAGE_BITS, pte.VALID2, pte.VALID))
+                pte.OFFSET << self.PAGE_BITS, pte.SP_PROT_DIS, pte.VALID))
             print(hex(pte.value))
 
     def dump_table(self, base, l1_addr):
@@ -347,7 +362,7 @@ class DART(Reloadable):
 
             print("  table (%d): %08x ... %08x -> %016x [%d%d]" % (
                 i, base + i*0x2000000, base + (i+1)*0x2000000,
-                pte.OFFSET << self.PAGE_BITS, pte.VALID2, pte.VALID))
+                pte.OFFSET << self.PAGE_BITS, pte.SP_PROT_DIS, pte.VALID))
             self.dump_table2(base + i*0x2000000, pte.OFFSET << self.PAGE_BITS)
 
     def dump_ttbr(self, idx, ttbr):

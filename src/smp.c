@@ -3,6 +3,7 @@
 #include "smp.h"
 #include "adt.h"
 #include "cpu_regs.h"
+#include "malloc.h"
 #include "string.h"
 #include "types.h"
 #include "utils.h"
@@ -19,7 +20,10 @@ struct spin_table {
 
 void *_reset_stack;
 
-u8 secondary_stacks[MAX_CPUS][SECONDARY_STACK_SIZE] ALIGNED(0x4000);
+#define DUMMY_STACK_SIZE 0x1000
+u8 dummy_stack[DUMMY_STACK_SIZE];
+
+u8 *secondary_stacks[MAX_CPUS] = {dummy_stack};
 
 static bool wfe_mode = false;
 
@@ -77,6 +81,7 @@ static void smp_start_cpu(int index, int cluster, int core, u64 rvbar, u64 cpu_s
     memset(&spin_table[index], 0, sizeof(struct spin_table));
 
     target_cpu = index;
+    secondary_stacks[index] = memalign(0x4000, SECONDARY_STACK_SIZE);
     _reset_stack = secondary_stacks[index] + SECONDARY_STACK_SIZE;
 
     sysop("dmb sy");
@@ -101,6 +106,8 @@ static void smp_start_cpu(int index, int cluster, int core, u64 rvbar, u64 cpu_s
         printf("Failed!\n");
     else
         printf("  Started.\n");
+
+    _reset_stack = dummy_stack + DUMMY_STACK_SIZE;
 }
 
 void smp_start_secondaries(void)
@@ -184,7 +191,10 @@ void smp_call4(int cpu, void *func, u64 arg0, u64 arg1, u64 arg2, u64 arg3)
     target->target = (u64)func;
     sysop("dmb sy");
 
-    smp_send_ipi(cpu);
+    if (wfe_mode)
+        sysop("sev");
+    else
+        smp_send_ipi(cpu);
 
     while (target->flag == flag)
         sysop("dmb sy");

@@ -67,7 +67,7 @@ struct image orig_logo;
 
 void fb_update(void)
 {
-    memcpy(fb.hwptr, fb.ptr, fb.size);
+    memcpy128(fb.hwptr, fb.ptr, fb.size);
 }
 
 static void fb_clear_font_row(u32 row)
@@ -301,6 +301,7 @@ const struct iodev_ops iodev_fb_ops = {
 struct iodev iodev_fb = {
     .ops = &iodev_fb_ops,
     .usage = USAGE_CONSOLE,
+    .lock = SPINLOCK_INIT,
 };
 
 static void fb_clear_console(void)

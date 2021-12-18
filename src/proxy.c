@@ -11,6 +11,7 @@
 #include "kboot.h"
 #include "malloc.h"
 #include "memory.h"
+#include "pcie.h"
 #include "pmgr.h"
 #include "smp.h"
 #include "string.h"
@@ -393,6 +394,10 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             reply->retval = uartproxy_iodev;
             break;
 
+        case P_USB_IODEV_VUART_SETUP:
+            usb_iodev_vuart_setup(request->args[0]);
+            break;
+
         case P_TUNABLES_APPLY_GLOBAL:
             reply->retval = tunables_apply_global((const char *)request->args[0],
                                                   (const char *)request->args[1]);
@@ -481,6 +486,13 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
             break;
         case P_FB_IMPROVE_LOGO:
             fb_improve_logo();
+            break;
+
+        case P_PCIE_INIT:
+            pcie_init();
+            break;
+        case P_PCIE_SHUTDOWN:
+            pcie_shutdown();
             break;
 
         default:

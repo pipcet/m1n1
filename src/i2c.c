@@ -80,11 +80,16 @@ static void i2c_xfer_start_read(i2c_dev_t *dev, u8 addr, size_t len)
 static size_t i2c_xfer_read(i2c_dev_t *dev, u8 *bfr, size_t len)
 {
     for (size_t i = 0; i < len; ++i) {
-        u32 timeout = 10000;
-        u32 val = PASEMI_RX_FLAG_EMPTY;
+        u32 timeout = 1000;
+        u32 val;
 
-        while (val & PASEMI_RX_FLAG_EMPTY && --timeout)
+        do {
             val = read32(dev->base + PASEMI_FIFO_RX);
+            if (!(val & PASEMI_RX_FLAG_EMPTY))
+                break;
+            udelay(10);
+        } while (--timeout);
+
         if (val & PASEMI_RX_FLAG_EMPTY) {
             printf("i2c: timeout while reading (got %lu, expected %lu bytes)\n", i, len);
             return i;
@@ -128,7 +133,7 @@ int i2c_smbus_read(i2c_dev_t *dev, u8 addr, u8 reg, u8 *bfr, size_t len)
     i2c_clear_fifos(dev);
     i2c_clear_status(dev);
 
-    if (i2c_xfer_write(dev, addr, 1, 1, &reg, 1))
+    if (i2c_xfer_write(dev, addr, 1, 0, &reg, 1))
         goto err;
 
     i2c_xfer_start_read(dev, addr, len + 1);

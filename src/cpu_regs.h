@@ -9,10 +9,14 @@
 
 #define SYS_IMP_APL_ACTLR_EL12 sys_reg(3, 6, 15, 14, 6)
 
-#define SYS_IMP_APL_AMX_CTL_EL1 sys_reg(3, 4, 15, 1, 4)
-#define SYS_IMP_APL_AMX_CTL_EL2 sys_reg(3, 4, 15, 4, 7)
-#define AMX_CTL_EN              BIT(63)
-#define AMX_CTL_EN_EL1          BIT(62)
+#define SYS_IMP_APL_AMX_CTL_EL1  sys_reg(3, 4, 15, 1, 4)
+#define SYS_IMP_APL_AMX_CTL_EL2  sys_reg(3, 4, 15, 4, 7)
+#define SYS_IMP_APL_AMX_CTL_EL12 sys_reg(3, 4, 15, 4, 6)
+
+#define AMX_CTL_EN     BIT(63)
+#define AMX_CTL_EN_EL1 BIT(62)
+
+#define SYS_IMP_APL_CNTVCT_ALIAS_EL0 sys_reg(3, 4, 15, 10, 6)
 
 /* HID registers */
 #define SYS_IMP_APL_HID0                sys_reg(3, 0, 15, 0, 0)
@@ -64,8 +68,9 @@
 #define HID10_FORCE_WAIT_STATE_DRAIN_UC BIT(32)
 #define HID10_DISABLE_ZVA_TEMPORAL_TSO  BIT(49)
 
-#define SYS_IMP_APL_HID11          sys_reg(3, 0, 15, 11, 0)
-#define HID11_DISABLE_LD_NT_WIDGET BIT(59)
+#define SYS_IMP_APL_HID11            sys_reg(3, 0, 15, 11, 0)
+#define HID11_ENABLE_FIX_UC_55719865 BIT(15)
+#define HID11_DISABLE_LD_NT_WIDGET   BIT(59)
 
 #define SYS_IMP_APL_HID13     sys_reg(3, 0, 15, 14, 0)
 #define HID13_PRE_CYCLES(x)   (((unsigned long)x) << 14)
@@ -147,13 +152,14 @@
 #define ACC_CFG_BP_SLEEP(x)   (((unsigned long)x) << 2)
 #define ACC_CFG_BP_SLEEP_MASK (3UL << 2)
 
-#define SYS_IMP_APL_CYC_OVRD   sys_reg(3, 5, 15, 5, 0)
-#define CYC_OVRD_FIQ_MODE(x)   (((unsigned long)x) << 20)
-#define CYC_OVRD_FIQ_MODE_MASK (3UL << 20)
-#define CYC_OVRD_IRQ_MODE(x)   (((unsigned long)x) << 22)
-#define CYC_OVRD_IRQ_MODE_MASK (3UL << 22)
-#define CYC_OVRD_WFI_MODE(x)   (((unsigned long)x) << 24)
-#define CYC_OVRD_WFI_MODE_MASK (3UL << 20)
+#define SYS_IMP_APL_CYC_OVRD     sys_reg(3, 5, 15, 5, 0)
+#define CYC_OVRD_FIQ_MODE(x)     (((unsigned long)x) << 20)
+#define CYC_OVRD_FIQ_MODE_MASK   (3UL << 20)
+#define CYC_OVRD_IRQ_MODE(x)     (((unsigned long)x) << 22)
+#define CYC_OVRD_IRQ_MODE_MASK   (3UL << 22)
+#define CYC_OVRD_WFI_MODE(x)     (((unsigned long)x) << 24)
+#define CYC_OVRD_WFI_MODE_MASK   (3UL << 24)
+#define CYC_OVRD_DISABLE_WFI_RET BIT(0)
 
 #define SYS_IMP_APL_UPMCR0 sys_reg(3, 7, 15, 0, 4)
 #define UPMCR0_IMODE_OFF   (0 << 16)
@@ -184,8 +190,10 @@
 #define SYS_IMP_APL_GXF_ABORT_EL12 sys_reg(3, 6, 15, 15, 3)
 #define SYS_IMP_APL_GXF_ENTER_EL12 sys_reg(3, 6, 15, 15, 2)
 
-#define SYS_IMP_APL_SPRR_PERM_EL0 sys_reg(3, 6, 15, 1, 5)
-#define SYS_IMP_APL_SPRR_PERM_EL1 sys_reg(3, 6, 15, 1, 6)
+#define SYS_IMP_APL_SPRR_PERM_EL0  sys_reg(3, 6, 15, 1, 5)
+#define SYS_IMP_APL_SPRR_PERM_EL1  sys_reg(3, 6, 15, 1, 6)
+#define SYS_IMP_APL_SPRR_PERM_EL02 sys_reg(3, 4, 15, 5, 2)
+#define SYS_IMP_APL_SPRR_PERM_EL12 sys_reg(3, 6, 15, 15, 7)
 
 #define SYS_IMP_APL_TPIDR_GL1 sys_reg(3, 6, 15, 10, 1)
 #define SYS_IMP_APL_VBAR_GL1  sys_reg(3, 6, 15, 10, 2)
@@ -195,8 +203,12 @@
 #define SYS_IMP_APL_ELR_GL1   sys_reg(3, 6, 15, 10, 6)
 #define SYS_IMP_APL_FAR_GL1   sys_reg(3, 6, 15, 10, 7)
 
-#define SYS_IMP_APL_VBAR_GL12 sys_reg(3, 6, 15, 9, 2)
-#define SYS_IMP_APL_SP_GL12   sys_reg(3, 6, 15, 10, 0)
+#define SYS_IMP_APL_VBAR_GL12  sys_reg(3, 6, 15, 9, 2)
+#define SYS_IMP_APL_SPSR_GL12  sys_reg(3, 6, 15, 9, 3)
+#define SYS_IMP_APL_ASPSR_GL12 sys_reg(3, 6, 15, 9, 4)
+#define SYS_IMP_APL_ESR_GL12   sys_reg(3, 6, 15, 9, 5)
+#define SYS_IMP_APL_ELR_GL12   sys_reg(3, 6, 15, 9, 6)
+#define SYS_IMP_APL_SP_GL12    sys_reg(3, 6, 15, 10, 0)
 
 #define SYS_IMP_APL_AFSR1_GL1 sys_reg(3, 6, 15, 0, 1)
 
@@ -204,6 +216,10 @@
 #define SYS_IMP_APL_APVMKEYLO_EL2 sys_reg(3, 6, 15, 14, 4)
 #define SYS_IMP_APL_APVMKEYHI_EL2 sys_reg(3, 6, 15, 14, 5)
 #define SYS_IMP_APL_APSTS_EL12    sys_reg(3, 6, 15, 14, 7)
+
+#define SYS_IMP_APL_APCTL_EL1  sys_reg(3, 4, 15, 0, 4)
+#define SYS_IMP_APL_APCTL_EL2  sys_reg(3, 6, 15, 12, 2)
+#define SYS_IMP_APL_APCTL_EL12 sys_reg(3, 6, 15, 15, 0)
 
 /* VM registers */
 #define SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2 sys_reg(3, 5, 15, 1, 3)

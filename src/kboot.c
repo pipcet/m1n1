@@ -29,6 +29,13 @@ static size_t initrd_size = 0;
         return -1;                                                                                 \
     } while (0)
 
+#define bail_cleanup(...)                                                                          \
+    do {                                                                                           \
+        printf(__VA_ARGS__);                                                                       \
+        ret = -1;                                                                                  \
+        goto err;                                                                                  \
+    } while (0)
+
 static int dt_set_chosen(void)
 {
 
@@ -67,7 +74,7 @@ static int dt_set_chosen(void)
         u64 fbreg[2] = {cpu_to_fdt64(fb_base), cpu_to_fdt64(fb_size)};
         char fbname[32];
 
-        sprintf(fbname, "framebuffer@%lx", fb_base);
+        snprintf(fbname, sizeof(fbname), "framebuffer@%lx", fb_base);
 
         if (fdt_setprop(dt, fb, "reg", fbreg, sizeof(fbreg)))
             bail("FDT: couldn't set framebuffer.reg property\n");
@@ -204,11 +211,10 @@ static int dt_set_cpus(void)
         bail("FDT: /cpus node not found in devtree\n");
 
     int node, cpu = 0;
-    fdt_for_each_subnode(node, dt, cpus)
-    {
+    for (node = fdt_first_subnode(dt, cpus); node >= 0;) {
         const char *name = fdt_get_name(dt, node, NULL);
         if (strncmp(name, "cpu@", 4))
-            continue;
+            goto next_node;
 
         const fdt64_t *prop = fdt_getprop(dt, node, "reg", NULL);
         if (!prop)
@@ -217,13 +223,15 @@ static int dt_set_cpus(void)
         u64 dt_mpidr = fdt64_ld(prop);
 
         if (dt_mpidr == (mrs(MPIDR_EL1) & 0xFFFFFF))
-            goto next;
+            goto next_cpu;
 
         if (!smp_is_alive(cpu)) {
             printf("FDT: CPU %d is not alive, disabling...\n", cpu);
-            if (fdt_setprop_string(dt, node, "status", "disabled"))
-                bail("FDT: couldn't set status property\n");
-            goto next;
+            int next = fdt_next_subnode(dt, node);
+            fdt_nop_node(dt, node);
+            cpu++;
+            node = next;
+            continue;
         }
 
         u64 mpidr = smp_get_mpidr(cpu);
@@ -232,13 +240,15 @@ static int dt_set_cpus(void)
             bail("FDT: DT CPU %d MPIDR mismatch: 0x%lx != 0x%lx\n", cpu, dt_mpidr, mpidr);
 
         u64 release_addr = smp_get_release_addr(cpu);
-        if (fdt_setprop_u64(dt, node, "cpu-release-addr", release_addr))
+        if (fdt_setprop_inplace_u64(dt, node, "cpu-release-addr", release_addr))
             bail("FDT: couldn't set cpu-release-addr property\n");
 
         printf("FDT: CPU %d MPIDR=0x%lx release-addr=0x%lx\n", cpu, mpidr, release_addr);
 
-    next:
+    next_cpu:
         cpu++;
+    next_node:
+        node = fdt_next_subnode(dt, node);
     }
 
     if ((node < 0) && (node != -FDT_ERR_NOTFOUND)) {
@@ -263,7 +273,7 @@ static int dt_set_mac_addresses(void)
 
     for (size_t i = 0; i < sizeof(aliases) / sizeof(*aliases); i++) {
         char propname[32];
-        sprintf(propname, "mac-address-%s", aliases[i]);
+        snprintf(propname, sizeof(propname), "mac-address-%s", aliases[i]);
 
         uint8_t addr[6];
         if (ADT_GETPROP_ARRAY(adt, anode, propname, addr) < 0)
@@ -281,6 +291,114 @@ static int dt_set_mac_addresses(void)
     }
 
     return 0;
+}
+
+static int dt_disable_missing_devs(const char *adt_prefix, const char *dt_prefix, int max_devs)
+{
+    int ret = -1;
+    int adt_prefix_len = strlen(adt_prefix);
+    int dt_prefix_len = strlen(dt_prefix);
+
+    int acnt = 0, phcnt = 0;
+    u64 *addrs = malloc(max_devs * sizeof(u64));
+    u32 *phandles = malloc(max_devs * sizeof(u32) * 4); // Allow up to 4 extra nodes per device
+    if (!addrs || !phandles)
+        bail_cleanup("FDT: out of memory\n");
+
+    int path[8];
+    int node = adt_path_offset_trace(adt, "/arm-io", path);
+    if (node < 0)
+        bail_cleanup("ADT: /arm-io not found\n");
+
+    int pp = 0;
+    while (path[pp])
+        pp++;
+    path[pp + 1] = 0;
+
+    /* Find ADT registers */
+    ADT_FOREACH_CHILD(adt, node)
+    {
+        const char *name = adt_get_name(adt, node);
+        if (strncmp(name, adt_prefix, adt_prefix_len))
+            continue;
+
+        path[pp] = node;
+        if (adt_get_reg(adt, path, "reg", 0, &addrs[acnt++], NULL) < 0)
+            bail_cleanup("Error getting /arm-io/%s regs\n", name);
+    }
+
+    int soc = fdt_path_offset(dt, "/soc");
+    if (soc < 0)
+        bail("FDT: /soc node not found in devtree\n");
+
+    /* Disable primary devices */
+    fdt_for_each_subnode(node, dt, soc)
+    {
+        const char *name = fdt_get_name(dt, node, NULL);
+        if (strncmp(name, dt_prefix, dt_prefix_len))
+            continue;
+
+        const fdt64_t *reg = fdt_getprop(dt, node, "reg", NULL);
+        if (!reg)
+            bail_cleanup("FDT: failed to get reg property of %s\n", name);
+
+        u64 addr = fdt64_ld(reg);
+
+        int i;
+        for (i = 0; i < acnt; i++)
+            if (addrs[i] == addr)
+                break;
+        if (i < acnt)
+            continue;
+
+        int iommus_size;
+        const fdt32_t *iommus = fdt_getprop(dt, node, "iommus", &iommus_size);
+        if (iommus) {
+            if (iommus_size & 7 || iommus_size > 4 * 8) {
+                printf("FDT: bad iommus property for /soc/%s\n", name);
+            } else {
+                for (int i = 0; i < iommus_size / 8; i++)
+                    phandles[phcnt++] = fdt32_ld(&iommus[i * 2]);
+            }
+        }
+
+        const char *status = fdt_getprop(dt, node, "status", NULL);
+        if (!status || strcmp(status, "disabled")) {
+            printf("FDT: Disabling missing device /soc/%s\n", name);
+
+            if (fdt_setprop_string(dt, node, "status", "disabled") < 0)
+                bail_cleanup("FDT: failed to set status property of /soc/%s\n", name);
+        }
+    }
+
+    /* Disable secondary devices */
+    fdt_for_each_subnode(node, dt, soc)
+    {
+        const char *name = fdt_get_name(dt, node, NULL);
+        u32 phandle = fdt_get_phandle(dt, node);
+
+        for (int i = 0; i < phcnt; i++) {
+            if (phandles[i] != phandle)
+                continue;
+
+            const char *status = fdt_getprop(dt, node, "status", NULL);
+            if (status && !strcmp(status, "disabled"))
+                continue;
+
+            printf("FDT: Disabling secondary device /soc/%s\n", name);
+
+            if (fdt_setprop_string(dt, node, "status", "disabled") < 0)
+                bail_cleanup("FDT: failed to set status property of /soc/%s\n", name);
+            break;
+        }
+    }
+
+    ret = 0;
+err:
+    free(phandles);
+    free(addrs);
+
+    return ret;
 }
 
 void kboot_set_initrd(void *start, size_t size)
@@ -332,6 +450,10 @@ int kboot_prepare_dt(void *fdt)
     if (dt_set_cpus())
         return -1;
     if (dt_set_mac_addresses())
+        return -1;
+    if (dt_disable_missing_devs("usb-drd", "usb@", 8))
+        return -1;
+    if (dt_disable_missing_devs("i2c", "i2c@", 8))
         return -1;
 
     if (fdt_pack(dt))

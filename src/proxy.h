@@ -104,6 +104,7 @@ typedef enum {
     P_IODEV_READ,
     P_IODEV_WRITE,
     P_IODEV_WHOAMI,
+    P_USB_IODEV_VUART_SETUP,
 
     P_TUNABLES_APPLY_GLOBAL = 0xa00,
     P_TUNABLES_APPLY_LOCAL,
@@ -134,6 +135,9 @@ typedef enum {
     P_FB_DISPLAY_LOGO,
     P_FB_RESTORE_LOGO,
     P_FB_IMPROVE_LOGO,
+
+    P_PCIE_INIT = 0xe00,
+    P_PCIE_SHUTDOWN,
 
 } ProxyOp;
 

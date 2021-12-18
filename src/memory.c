@@ -7,6 +7,7 @@
 #include "fb.h"
 #include "gxf.h"
 #include "malloc.h"
+#include "mcc.h"
 #include "smp.h"
 #include "string.h"
 #include "utils.h"
@@ -34,8 +35,6 @@ CACHE_RANGE_OP(dc_cvau_range, "dc cvau")
 CACHE_RANGE_OP(dc_civac_range, "dc civac")
 
 extern u8 _stack_top[];
-extern u8 gl1_stack[GL_STACK_SIZE];
-extern u8 gl2_stack[MAX_CPUS][GL_STACK_SIZE];
 
 uint64_t ram_base = 0;
 
@@ -164,8 +163,8 @@ enum SPRR_val_t {
 #define MAIR_ATTR_DEVICE_nGnRE   0x04UL
 #define MAIR_ATTR_FRAMEBUFFER    0x44UL
 
-static u64 mmu_pt_L0[2] ALIGNED(PAGE_SIZE);
-static u64 mmu_pt_L1[ENTRIES_PER_L1_TABLE] ALIGNED(PAGE_SIZE);
+static u64 *mmu_pt_L0;
+static u64 *mmu_pt_L1;
 
 static u64 *mmu_pt_get_l2(u64 from)
 {
@@ -292,8 +291,11 @@ static u64 mmu_make_table_pte(u64 *addr)
 
 static void mmu_init_pagetables(void)
 {
-    memset64(mmu_pt_L0, 0, sizeof mmu_pt_L0);
-    memset64(mmu_pt_L1, 0, sizeof mmu_pt_L1);
+    mmu_pt_L0 = memalign(PAGE_SIZE, sizeof(u64) * 2);
+    mmu_pt_L1 = memalign(PAGE_SIZE, sizeof(u64) * ENTRIES_PER_L1_TABLE);
+
+    memset64(mmu_pt_L0, 0, sizeof(u64) * 2);
+    memset64(mmu_pt_L1, 0, sizeof(u64) * ENTRIES_PER_L1_TABLE);
 
     mmu_pt_L0[0] = mmu_make_table_pte(&mmu_pt_L1[0]);
     mmu_pt_L0[1] = mmu_make_table_pte(&mmu_pt_L1[ENTRIES_PER_L1_TABLE >> 1]);
@@ -312,44 +314,10 @@ void mmu_add_mapping(u64 from, u64 to, size_t size, u8 attribute_index, u64 perm
     sysop("isb");
 }
 
-static void mmu_rm_mapping(u64 from, size_t size)
+void mmu_rm_mapping(u64 from, size_t size)
 {
     if (mmu_map(from, 0, size) < 0)
         panic("Failed to rm MMU mapping at 0x%lx (0x%lx)\n", from, size);
-}
-
-#define TZ_START(i) (0x6a0 + i * 0x10)
-#define TZ_END(i)   (0x6a4 + i * 0x10)
-#define TZ_REGS     4
-
-static void mmu_unmap_carveouts(void)
-{
-    int path[8];
-    int node = adt_path_offset_trace(adt, "/arm-io/mcc", path);
-    u64 mcc_tz_base;
-
-    if (node < 0) {
-        printf("MMU: MCC node not found!\n");
-        return;
-    }
-
-    if (adt_get_reg(adt, path, "reg", 1, &mcc_tz_base, NULL)) {
-        printf("MMU: Failed to get MCC reg property!\n");
-        return;
-    }
-
-    printf("MMU: TZ registers @ 0x%lx\n", mcc_tz_base);
-
-    for (int i = 0; i < TZ_REGS; i++) {
-        uint64_t start = ((uint64_t)read32(mcc_tz_base + TZ_START(i))) << 12;
-        uint64_t end = ((uint64_t)(1 + read32(mcc_tz_base + TZ_END(i)))) << 12;
-        if (start && start != end) {
-            start |= ram_base;
-            end |= ram_base;
-            printf("MMU: Unmapping TZ%d region at 0x%lx..0x%lx\n", i, start, end);
-            mmu_rm_mapping(start, end - start);
-        }
-    }
 }
 
 static void mmu_map_mmio(void)
@@ -427,7 +395,7 @@ static void mmu_add_default_mappings(void)
     mmu_add_mapping(ram_base, ram_base, cur_boot_args.mem_size_actual, MAIR_IDX_NORMAL, PERM_RWX);
 
     /* Unmap carveout regions */
-    mmu_unmap_carveouts();
+    mcc_unmap_carveouts();
 
     /*
      * Remap m1n1 executable code as RX.
@@ -436,15 +404,9 @@ static void mmu_add_default_mappings(void)
                     PERM_RX_EL0);
 
     /*
-     * Make guard pages at the end of stacks
+     * Make guard page at the end of the main stack
      */
     mmu_rm_mapping((u64)_stack_top, PAGE_SIZE);
-
-    for (int i = 0; i < MAX_CPUS; i++) {
-        mmu_rm_mapping((u64)secondary_stacks[i], PAGE_SIZE);
-        mmu_rm_mapping((u64)gl1_stack[i], PAGE_SIZE);
-        mmu_rm_mapping((u64)gl2_stack[i], PAGE_SIZE);
-    }
 
     /*
      * Create mapping for RAM from 0x88_0000_0000,

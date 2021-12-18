@@ -83,7 +83,7 @@ ExcInfo = Struct(
 )
 # Sends 56+ byte Commands and Expects 36 Byte Responses
 # Commands are format <I48sI
-#   4 byte command, 48 byte null padded data + 4 byte checksum 
+#   4 byte command, 48 byte null padded data + 4 byte checksum
 # Responses are of the format: struct format <Ii24sI
 #   4byte Response , 4 byte status, 24 byte string,  4 byte Checksum
 #    Response must start 0xff55aaXX where XX distiguishes between them
@@ -423,10 +423,15 @@ class AlignmentError(Exception):
 class IODEV(IntEnum):
     UART = 0
     FB = 1
-    USB0 = 2
-    USB1 = 3
-    USB0_SEC = 4
-    USB1_SEC = 5
+    USB_VUART = 2
+    USB0 = 3
+    USB1 = 4
+    USB2 = 5
+    USB3 = 6
+    USB4 = 7
+    USB5 = 8
+    USB6 = 9
+    USB7 = 10
 
 class USAGE(IntFlag):
     CONSOLE = (1 << 0)
@@ -547,6 +552,7 @@ class M1N1Proxy(Reloadable):
     P_IODEV_READ = 0x903
     P_IODEV_WRITE = 0x904
     P_IODEV_WHOAMI = 0x905
+    P_USB_IODEV_VUART_SETUP = 0x906
 
     P_TUNABLES_APPLY_GLOBAL = 0xa00
     P_TUNABLES_APPLY_LOCAL = 0xa01
@@ -576,6 +582,9 @@ class M1N1Proxy(Reloadable):
     P_FB_DISPLAY_LOGO = 0xd06
     P_FB_RESTORE_LOGO = 0xd07
     P_FB_IMPROVE_LOGO = 0xd08
+
+    P_PCIE_INIT = 0xe00
+    P_PCIE_SHUTDOWN = 0xe01
 
     def __init__(self, iface, debug=False):
         self.debug = debug
@@ -929,6 +938,8 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_IODEV_WRITE, iodev, buf, size)
     def iodev_whoami(self):
         return IODEV(self.request(self.P_IODEV_WHOAMI))
+    def usb_iodev_vuart_setup(self, iodev):
+        return self.request(self.P_USB_IODEV_VUART_SETUP, iodev)
 
     def tunables_apply_global(self, path, prop):
         return self.request(self.P_TUNABLES_APPLY_GLOBAL, path, prop)
@@ -974,9 +985,9 @@ class M1N1Proxy(Reloadable):
     def fb_shutdown(self, restore_logo=True):
         return self.request(self.P_FB_SHUTDOWN, restore_logo)
     def fb_blit(self, x, y, w, h, ptr, stride):
-        return self.request(self.P_FB_BLIP, x, y, w, h, ptr, stride)
+        return self.request(self.P_FB_BLIT, x, y, w, h, ptr, stride)
     def fb_unblit(self, x, y, w, h, ptr, stride):
-        return self.request(self.P_FB_UNBLIP, x, y, w, h, ptr, stride)
+        return self.request(self.P_FB_UNBLIT, x, y, w, h, ptr, stride)
     def fb_fill(self, color):
         return self.request(self.P_FB_FILL, x, y, w, h, color)
     def fb_clear(self, color):
@@ -987,6 +998,11 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_FB_RESTORE_LOGO)
     def fb_improve_logo(self):
         return self.request(self.P_FB_IMPROVE_LOGO)
+
+    def pcie_init(self):
+        return self.request(self.P_PCIE_INIT)
+    def pcie_shutdown(self):
+        return self.request(self.P_PCIE_SHUTDOWN)
 
 __all__.extend(k for k, v in globals().items()
                if (callable(v) or isinstance(v, type)) and v.__module__ == __name__)
