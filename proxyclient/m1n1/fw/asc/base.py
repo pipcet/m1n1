@@ -14,6 +14,9 @@ def msg_handler(message, regtype=None):
 class ASCMessage1(Register64):
     EP = 7, 0
 
+class ASCTimeout(Exception):
+    pass
+
 class ASCBaseEndpoint:
     BASE_MESSAGE = Register64
     SHORT = None
@@ -47,6 +50,9 @@ class ASCBaseEndpoint:
         self.asc.send(msg, ASCMessage1(EP=self.epnum))
 
     def start(self):
+        pass
+
+    def stop(self):
         pass
 
     def log(self, msg):

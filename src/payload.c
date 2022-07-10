@@ -3,6 +3,8 @@
 #include "payload.h"
 #include "adt.h"
 #include "assert.h"
+#include "chainload.h"
+#include "display.h"
 #include "heapblock.h"
 #include "kboot.h"
 #include "smp.h"
@@ -18,13 +20,16 @@
 static const u8 gz_magic[] = {0x1f, 0x8b};
 static const u8 xz_magic[] = {0xfd, '7', 'z', 'X', 'Z', 0x00};
 static const u8 fdt_magic[] = {0xd0, 0x0d, 0xfe, 0xed};
-static const u8 kernel_magic[] = {'A', 'R', 'M', 0x64};   // at 0x38
-static const u8 cpio_magic[] = {'0', '7', '0', '7', '0'}; // '1' or '2' next
+static const u8 kernel_magic[] = {'A', 'R', 'M', 0x64};          // at 0x38
+static const u8 cpio_magic[] = {'0', '7', '0', '7', '0'};        // '1' or '2' next
+static const u8 img4_magic[] = {0x16, 0x04, 'I', 'M', 'G', '4'}; // IA5String 'IMG4'
+static const u8 sig_magic[] = {'m', '1', 'n', '1', '_', 's', 'i', 'g'};
 static const u8 empty[] = {0, 0, 0, 0};
 
 static char expect_compatible[256];
 static struct kernel_header *kernel = NULL;
 static void *fdt = NULL;
+static char *chainload_spec = NULL;
 
 static void *load_one_payload(void *start, size_t size);
 
@@ -140,31 +145,44 @@ static void *load_kernel(void *p, size_t size)
     }
 }
 
-#define MAX_VAR_NAME 32
+#define MAX_VAR_NAME 64
 #define MAX_VAR_SIZE 1024
 
 #define IS_VAR(x) !strncmp((char *)*p, x, strlen(x))
 
+#define MAX_CHOSEN_VARS 16
+
+static size_t chosen_cnt = 0;
+static char *chosen[MAX_CHOSEN_VARS];
+
 static bool check_var(u8 **p)
 {
-    char *val = memchr(*p, '=', MAX_VAR_NAME + 1);
+    char *val = memchr(*p, '=', strnlen((char *)*p, MAX_VAR_NAME + 1));
     if (!val)
         return false;
 
     val++;
 
-    char *end = memchr(val, '\n', MAX_VAR_SIZE + 1);
+    char *end = memchr(val, '\n', strnlen(val, MAX_VAR_SIZE + 1));
     if (!end)
         return false;
 
-    if (IS_VAR("boot-args=")) {
-        *end = 0;
-        kboot_set_bootargs(val);
+    *end = 0;
+    printf("Found a variable at %p: %s\n", *p, (char *)*p);
+
+    if (IS_VAR("chosen.")) {
+        if (chosen_cnt >= MAX_CHOSEN_VARS)
+            printf("Too many chosen vars, ignoring %s='%s'\n", *p, val);
+        else
+            chosen[chosen_cnt++] = (char *)*p;
+    } else if (IS_VAR("chainload=")) {
+        chainload_spec = val;
+    } else if (IS_VAR("display=")) {
+        display_configure(val);
     } else {
-        return false;
+        printf("Unknown variable %s\n", *p);
     }
 
-    printf("Found a variable at %p: %s\n", *p, (char *)*p);
     *p = (u8 *)(end + 1);
     return true;
 }
@@ -190,9 +208,16 @@ static void *load_one_payload(void *start, size_t size)
     } else if (!memcmp(p + 0x38, kernel_magic, sizeof kernel_magic)) {
         printf("Found a kernel at %p\n", p);
         return load_kernel(p, size);
+    } else if (!memcmp(p, sig_magic, sizeof sig_magic)) {
+        u32 size;
+        memcpy(&size, p + 8, 4);
+
+        printf("Found a m1n1 signature at %p, skipping 0x%x bytes\n", p, size);
+        return p + size;
     } else if (check_var(&p)) {
         return p;
-    } else if (!memcmp(p, empty, sizeof empty)) {
+    } else if (!memcmp(p, empty, sizeof empty) ||
+               !memcmp(p + 0x05, img4_magic, sizeof img4_magic)) { // SEPFW after m1n1
         printf("No more payloads at %p\n", p);
         return NULL;
     } else {
@@ -217,13 +242,28 @@ int payload_run(void)
         return -1;
     }
 
+    chosen_cnt = 0;
+
     void *p = _payload_start;
 
     while (p)
         p = load_one_payload(p, 0);
 
+    if (chainload_spec) {
+        return chainload_load(chainload_spec, chosen, chosen_cnt);
+    }
+
     if (kernel && fdt) {
         smp_start_secondaries();
+
+        for (size_t i = 0; i < chosen_cnt; i++) {
+            char *val = memchr(chosen[i], '=', MAX_VAR_NAME + 1);
+
+            assert(val);
+            val[0] = 0; // Terminate var name
+            if (kboot_set_chosen(chosen[i] + 7, val + 1) < 0)
+                printf("Failed to kboot set %s='%s'\n", chosen[i], val);
+        }
 
         if (kboot_prepare_dt(fdt)) {
             printf("Failed to prepare FDT!\n");

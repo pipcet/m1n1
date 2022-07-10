@@ -54,7 +54,7 @@ static dart_dev_t *usb_dart_init(u32 idx)
     }
 
     snprintf(path, sizeof(path), FMT_DART_PATH, idx);
-    return dart_init_adt(path, dart_idx);
+    return dart_init_adt(path, 1, dart_idx, false);
 }
 
 static int usb_drd_get_regs(u32 idx, struct usb_drd_regs *regs)
@@ -108,15 +108,15 @@ int usb_phy_bringup(u32 idx)
         return -1;
 
     snprintf(path, sizeof(path), FMT_ATC_PATH, idx);
-    if (pmgr_adt_clocks_enable(path) < 0)
+    if (pmgr_adt_power_enable(path) < 0)
         return -1;
 
     snprintf(path, sizeof(path), FMT_DART_PATH, idx);
-    if (pmgr_adt_clocks_enable(path) < 0)
+    if (pmgr_adt_power_enable(path) < 0)
         return -1;
 
     snprintf(path, sizeof(path), FMT_DRD_PATH, idx);
-    if (pmgr_adt_clocks_enable(path) < 0)
+    if (pmgr_adt_power_enable(path) < 0)
         return -1;
 
     write32(usb_regs.atc + 0x08, 0x01c1000f);

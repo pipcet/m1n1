@@ -60,6 +60,8 @@ class ProxyUtils(Reloadable):
         self.simd_type = None
         self.simd = None
 
+        self.mmu_off = False
+
         self.exec_modes = {
             None: (self.proxy.call, REGION_RX_EL1),
             "el2": (self.proxy.call, REGION_RX_EL1),
@@ -75,6 +77,11 @@ class ProxyUtils(Reloadable):
             64: lambda addr: self.proxy.read64(addr),
             128: lambda addr: [self.proxy.read64(addr),
                                self.proxy.read64(addr + 8)],
+            256: lambda addr: [self.proxy.read64(addr),
+                               self.proxy.read64(addr + 8),
+                               self.proxy.read64(addr + 16),
+                               self.proxy.read64(addr + 24)],
+            512: lambda addr: [self.proxy.read64(addr + i) for i in range(0, 64, 8)],
         }
         self._write = {
             8: lambda addr, data: self.proxy.write8(addr, data),
@@ -83,11 +90,17 @@ class ProxyUtils(Reloadable):
             64: lambda addr, data: self.proxy.write64(addr, data),
             128: lambda addr, data: (self.proxy.write64(addr, data[0]),
                                      self.proxy.write64(addr + 8, data[1])),
+            256: lambda addr, data: (self.proxy.write64(addr, data[0]),
+                                     self.proxy.write64(addr + 8, data[1]),
+                                     self.proxy.write64(addr + 16, data[2]),
+                                     self.proxy.write64(addr + 24, data[3])),
+            512: lambda addr, data: [self.proxy.write64(addr + 8 * i, data[i])
+                                     for i in range(8)],
         }
 
     def read(self, addr, width):
         '''do a width read from addr and return it
-        width can be 8, 16, 21, 64 or 132'''
+        width can be 8, 16, 21, 64, 128 or 256'''
         val = self._read[width](addr)
         if self.proxy.get_exc_count():
             raise ProxyError("Exception occurred")
@@ -95,7 +108,7 @@ class ProxyUtils(Reloadable):
 
     def write(self, addr, data, width):
         '''do a width write of data to addr
-        width can be 8, 16, 21, 64 or 132'''
+        width can be 8, 16, 21, 64, 128 or 256'''
         self._write[width](addr, data)
         if self.proxy.get_exc_count():
             raise ProxyError("Exception occurred")
@@ -137,6 +150,9 @@ class ProxyUtils(Reloadable):
         else:
             raise ValueError()
 
+        if self.mmu_off:
+            region = 0
+
         assert len(func) < self.CODE_BUFFER_SIZE
         self.iface.writemem(self.code_buffer, func)
         self.proxy.dc_cvau(self.code_buffer, len(func))
@@ -156,11 +172,11 @@ class ProxyUtils(Reloadable):
 
     inst = exec
 
-    def compressed_writemem(self, dest, data, progress):
+    def compressed_writemem(self, dest, data, progress=None):
         if not len(data):
             return
 
-        payload = gzip.compress(data)
+        payload = gzip.compress(data, compresslevel=2)
         compressed_size = len(payload)
 
         with self.heap.guarded_malloc(compressed_size) as compressed_addr:
@@ -177,7 +193,7 @@ class ProxyUtils(Reloadable):
     def get_adt(self):
         if self.adt_data is not None:
             return self.adt_data
-        adt_base = self.ba.devtree - self.ba.virt_base + self.ba.phys_base
+        adt_base = (self.ba.devtree - self.ba.virt_base + self.ba.phys_base) & 0xffffffffffffffff
         adt_size = self.ba.devtree_size
         print(f"Fetching ADT ({adt_size} bytes)...")
         self.adt_data = self.iface.readmem(adt_base, self.ba.devtree_size)
@@ -185,7 +201,7 @@ class ProxyUtils(Reloadable):
 
     def push_adt(self):
         self.adt_data = self.adt.build()
-        adt_base = self.ba.devtree - self.ba.virt_base + self.ba.phys_base
+        adt_base = (self.ba.devtree - self.ba.virt_base + self.ba.phys_base) & 0xffffffffffffffff
         adt_size = len(self.adt_data)
         print(f"Pushing ADT ({adt_size} bytes)...")
         self.iface.writemem(adt_base, self.adt_data)
@@ -199,7 +215,10 @@ class ProxyUtils(Reloadable):
         lines = list(c.disassemble())
         if pc is not None:
             idx = (pc - start) // 4
-            lines[idx] = " *" + lines[idx][2:]
+            try:
+                lines[idx] = " *" + lines[idx][2:]
+            except IndexError:
+                pass
         for i in lines:
             print(" " + i)
 
@@ -215,14 +234,15 @@ class ProxyUtils(Reloadable):
         self.msr(L2C_ERR_STS_EL1, l2c_err_sts) # Clear the flag bits
         self.msr(DAIF, self.mrs(DAIF) | 0x100) # Re-enable SError exceptions
 
-    def print_exception(self, code, ctx, addr=lambda a: f"0x{a:x}"):
+    def print_context(self, ctx, is_fault=True, addr=lambda a: f"0x{a:x}"):
         print(f"  == Exception taken from {ctx.spsr.M.name} ==")
         el = ctx.spsr.M >> 2
         print(f"  SPSR   = {ctx.spsr}")
         print(f"  ELR    = {addr(ctx.elr)}" + (f" (0x{ctx.elr_phys:x})" if ctx.elr_phys else ""))
-        print(f"  ESR    = {ctx.esr}")
-        print(f"  FAR    = {addr(ctx.far)}" + (f" (0x{ctx.far_phys:x})" if ctx.far_phys else ""))
         print(f"  SP_EL{el} = 0x{ctx.sp[el]:x}" + (f" (0x{ctx.sp_phys:x})" if ctx.sp_phys else ""))
+        if is_fault:
+            print(f"  ESR    = {ctx.esr}")
+            print(f"  FAR    = {addr(ctx.far)}" + (f" (0x{ctx.far_phys:x})" if ctx.far_phys else ""))
 
         for i in range(0, 31, 4):
             j = min(30, i + 3)
@@ -230,11 +250,11 @@ class ProxyUtils(Reloadable):
 
         if ctx.elr_phys:
             print()
-            print("  == Faulting code ==")
+            print("  == Code context ==")
 
             self.disassemble_at(ctx.elr_phys - 4 * 4, 9 * 4, ctx.elr_phys)
 
-        if code == EXC.SYNC:
+        if is_fault:
             if ctx.esr.EC == ESR_EC.MSR or ctx.esr.EC == ESR_EC.IMPDEF and ctx.esr.ISS == 0x20:
                 print()
                 print("  == MRS/MSR fault decoding ==")
@@ -264,7 +284,6 @@ class ProxyUtils(Reloadable):
                 if iss.DFSC == DABORT_DFSC.ECC_ERROR:
                     self.print_l2c_regs()
 
-        elif code == EXC.SERROR:
             if ctx.esr.EC == ESR_EC.SERROR and ctx.esr.ISS == 0:
                 self.print_l2c_regs()
 
@@ -339,7 +358,7 @@ class LazyADT:
         return iter(self._adt)
 
 class RegMonitor(Reloadable):
-    def __init__(self, utils, bufsize=0x100000, ascii=False):
+    def __init__(self, utils, bufsize=0x100000, ascii=False, log=None):
         self.utils = utils
         self.proxy = utils.proxy
         self.iface = self.proxy.iface
@@ -347,35 +366,43 @@ class RegMonitor(Reloadable):
         self.last = []
         self.bufsize = bufsize
         self.ascii = ascii
+        self.log = log or print
 
         if bufsize:
             self.scratch = utils.malloc(bufsize)
         else:
             self.scratch = None
 
-    def readmem(self, start, size):
+    def readmem(self, start, size, readfn):
+        if readfn:
+            return readfn(start, size)
         if self.scratch:
             assert size < self.bufsize
             self.proxy.memcpy32(self.scratch, start, size)
             start = self.scratch
         return self.proxy.iface.readmem(start, size)
 
-    def add(self, start, size, name=None, offset=None):
+    def add(self, start, size, name=None, offset=None, readfn=None):
         if offset is None:
             offset = start
-        self.ranges.append((start, size, name, offset))
+        self.ranges.append((start, size, name, offset, readfn))
         self.last.append(None)
+
+    def show_regions(self, log=print):
+        for start, size, name, offset, readfn in sorted(self.ranges):
+            end = start + size - 1
+            log(f"{start:#x}..{end:#x} ({size:#x})\t{name}")
 
     def poll(self):
         if not self.ranges:
             return
         cur = []
-        for (start, size, name, offset), last in zip(self.ranges, self.last):
+        for (start, size, name, offset, readfn), last in zip(self.ranges, self.last):
             count = size // 4
-            block = self.readmem(start, size)
+            block = self.readmem(start, size, readfn)
             if block is None:
                 if last is not None:
-                    print(f"# Lost: {name} ({start:#x}..{start + size - 1:#x})")
+                    self.log(f"# Lost: {name} ({start:#x}..{start + size - 1:#x})")
                 cur.append(None)
                 continue
 
@@ -383,26 +410,29 @@ class RegMonitor(Reloadable):
             cur.append(words)
             if last == words:
                 continue
+            out = []
             if name:
-                print(f"# {name} ({start:#x}..{start + size - 1:#x})")
+                out.append(f"# {name} ({start:#x}..{start + size - 1:#x})\n")
+            else:
+                out.append(f"# ({start:#x}..{start + size - 1:#x})\n")
             row = 8
             skipping = False
             for i in range(0, count, row):
                 if not last:
                     if i != 0 and words[i:i+row] == words[i-row:i]:
                         if not skipping:
-                            print("%016x *" % (offset + i * 4))
+                            out.append("%016x *\n" % (offset + i * 4))
                         skipping = True
                     else:
-                        print("%016x" % (offset + i * 4), end=" ")
+                        out.append("%016x " % (offset + i * 4))
                         for new in words[i:i+row]:
-                            print("%08x" % new, end=" ")
+                            out.append("%08x " % new)
                         if self.ascii:
-                            print("| " + _ascii(block[4*i:4*(i+row)]), end="")
-                        print()
+                            out.append("| " + _ascii(block[4*i:4*(i+row)]))
+                        out.append("\n")
                         skipping = False
                 elif last[i:i+row] != words[i:i+row]:
-                    print("%016x" % (offset + i * 4), end=" ")
+                    out.append("%016x " % (offset + i * 4))
                     for old, new in zip(last[i:i+row], words[i:i+row]):
                         so = "%08x" % old
                         sn = s = "%08x" % new
@@ -416,10 +446,11 @@ class RegMonitor(Reloadable):
                                     ld = d
                                 s += b
                             s += "\x1b[m"
-                        print(s, end=" ")
+                        out.append(s + " ")
                     if self.ascii:
-                        print("| " + _ascii(block[4*i:4*(i+row)]), end="")
-                    print()
+                        out.append("| " + _ascii(block[4*i:4*(i+row)]))
+                    out.append("\n")
+            self.log("".join(out))
         self.last = cur
 
 class GuardedHeap:

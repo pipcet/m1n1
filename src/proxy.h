@@ -82,6 +82,7 @@ typedef enum {
     P_SMP_CALL,
     P_SMP_CALL_SYNC,
     P_SMP_WAIT,
+    P_SMP_SET_WFE_MODE,
 
     P_HEAPBLOCK_ALLOC = 0x600, // Heap and memory management ops
     P_MALLOC,
@@ -89,14 +90,15 @@ typedef enum {
     P_FREE,
 
     P_KBOOT_BOOT = 0x700, // Kernel boot ops
-    P_KBOOT_SET_BOOTARGS,
+    P_KBOOT_SET_CHOSEN,
     P_KBOOT_SET_INITRD,
     P_KBOOT_PREPARE_DT,
 
-    P_PMGR_CLOCK_ENABLE = 0x800, // power/clock management ops
-    P_PMGR_CLOCK_DISABLE,
-    P_PMGR_ADT_CLOCKS_ENABLE,
-    P_PMGR_ADT_CLOCKS_DISABLE,
+    P_PMGR_POWER_ENABLE = 0x800, // power/clock management ops
+    P_PMGR_POWER_DISABLE,
+    P_PMGR_ADT_POWER_ENABLE,
+    P_PMGR_ADT_POWER_DISABLE,
+    P_PMGR_RESET,
 
     P_IODEV_SET_USAGE = 0x900,
     P_IODEV_CAN_READ,
@@ -125,6 +127,8 @@ typedef enum {
     P_HV_WDT_START,
     P_HV_START_SECONDARY,
     P_HV_SWITCH_CPU,
+    P_HV_SET_TIME_STEALING,
+    P_HV_PIN_CPU,
 
     P_FB_INIT = 0xd00,
     P_FB_SHUTDOWN,
@@ -138,6 +142,17 @@ typedef enum {
 
     P_PCIE_INIT = 0xe00,
     P_PCIE_SHUTDOWN,
+
+    P_NVME_INIT = 0xf00,
+    P_NVME_SHUTDOWN,
+    P_NVME_READ,
+    P_NVME_FLUSH,
+
+    P_MCC_GET_CARVEOUTS = 0x1000,
+
+    P_DISPLAY_INIT = 0x1100,
+    P_DISPLAY_CONFIGURE = 0x1101,
+    P_DISPLAY_SHUTDOWN = 0x1102,
 
 } ProxyOp;
 

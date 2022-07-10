@@ -13,6 +13,7 @@ parser.add_argument('-S', '--shell', action="store_true")
 parser.add_argument('-e', '--hook-exceptions', action="store_true")
 parser.add_argument('-d', '--debug-xnu', action="store_true")
 parser.add_argument('-l', '--logfile', type=pathlib.Path)
+parser.add_argument('-C', '--cpus', default=None)
 parser.add_argument('payload', type=pathlib.Path)
 parser.add_argument('boot_args', default=[], nargs="*")
 args = parser.parse_args()
@@ -22,6 +23,7 @@ from m1n1.proxyutils import *
 from m1n1.utils import *
 from m1n1.shell import run_shell
 from m1n1.hv import HV
+from m1n1.hw.pmu import PMU
 
 iface = UartInterface()
 p = M1N1Proxy(iface, debug=False)
@@ -33,6 +35,18 @@ hv = HV(iface, p, u)
 hv.hook_exceptions = args.hook_exceptions
 
 hv.init()
+
+if args.cpus:
+    avail = [i.name for i in hv.adt["/cpus"]]
+    want = set(f"cpu{i}" for i in args.cpus)
+    for cpu in avail:
+        if cpu in want:
+            continue
+        try:
+            del hv.adt[f"/cpus/{cpu}"]
+            print(f"Disabled {cpu}")
+        except KeyError:
+            continue
 
 if args.debug_xnu:
     hv.adt["chosen"].debug_enabled = 1
@@ -48,6 +62,8 @@ symfile = None
 if args.symbols:
     symfile = args.symbols.open("rb")
 hv.load_macho(args.payload.open("rb"), symfile=symfile)
+
+PMU(u).reset_panic_counter()
 
 for i in args.script:
     try:

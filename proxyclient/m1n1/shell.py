@@ -122,7 +122,7 @@ def run_shell(locals, msg=None, exitmsg=None):
     saved_display = sys.displayhook
     try:
         def display(val):
-            if isinstance(val, int):
+            if isinstance(val, int) and not isinstance(val, bool):
                 builtins._ = val
                 print(hex(val))
             elif callable(val):
@@ -188,8 +188,8 @@ def run_shell(locals, msg=None, exitmsg=None):
                 if isinstance(clist, dict):
                     clist[obj_name] = desc
 
+        con = HistoryConsole(locals)
         try:
-            con = HistoryConsole(locals)
             con.interact(msg, exitmsg)
         except ExitConsole as e:
             if len(e.args):

@@ -5,7 +5,6 @@
 ## Building
 
 You need an `aarch64-linux-gnu-gcc` cross-compiler toolchain (or a native one, if running on ARM64).
-You also need `dtc` (the devicetree compiler) and `convert` (from ImageMagick) for the boot logos.
 
 ```shell
 $ git clone --recursive https://github.com/AsahiLinux/m1n1.git
@@ -21,7 +20,7 @@ Building on ARM64 macOS is supported with clang and LLVM; you need to use Homebr
 install the required dependencies:
 
 ```shell
-$ brew install llvm imagemagick dtc
+$ brew install llvm
 ```
 
 After that, just type `make`.
@@ -40,8 +39,8 @@ $ docker-compose run m1n1 make
 
 ## Usage
 
-Our [developer quickstart](https://github.com/AsahiLinux/docs/wiki/Developer-Quickstart#using-m1n1)
-guide has more information on how to use m1n1.
+Our [wiki](https://github.com/AsahiLinux/docs/wiki/m1n1%3AUser-Guide) has more information on how to
+use m1n1.
 
 To install on an OS container based on macOS <12.1, use `m1n1.macho`:
 
@@ -79,7 +78,7 @@ Supported compression formats:
 
 m1n1 is licensed under the MIT license, as included in the [LICENSE](LICENSE) file.
 
-* Copyright (C) 2021 The Asahi Linux contributors
+* Copyright The Asahi Linux Contributors
 
 Please see the Git history for authorship information.
 
@@ -132,3 +131,5 @@ licensed under the [OFL-1.1](3rdparty_licenses/LICENSE.OFL-1.1) license and copy
 
 m1n1 embeds portions of the [dwc3 usb linux driver](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/usb/dwc3/core.h?id=7bc5a6ba369217e0137833f5955cf0b0f08b0712), which was [BSD-or-GPLv2 dual-licensed](3rdparty_licenses/LICENSE.BSD-3.dwc3) and copyright
 * Copyright (C) 2010-2011 Texas Instruments Incorporated - http://www.ti.com
+
+m1n1 embeds some rust crates. Licenses can be found in the vendor directory for every crate.

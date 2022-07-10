@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 
 import struct
+from io import BytesIO
 
 from enum import IntEnum
 
@@ -8,6 +9,8 @@ from m1n1.proxyutils import RegMonitor
 from m1n1.utils import *
 from m1n1.trace.dart import DARTTracer
 from m1n1.trace.asc import ASCTracer, EP, EPState, msg, msg_log, DIR
+from m1n1.fw.afk.rbep import *
+from m1n1.fw.afk.epic import *
 
 trace_device("/arm-io/dcp", True, ranges=[1])
 
@@ -16,66 +19,36 @@ ASCTracer = ASCTracer._reloadcls()
 
 iomon = RegMonitor(hv.u, ascii=True)
 
-class IOEpMessage(Register64):
-    TYPE = 63, 48
-
-class IOEp_Generic(IOEpMessage):
-    ARG3 = 47, 32
-    ARG2 = 31, 16
-    ARG1 = 15, 0
-
-class IOEp_SetBuf_Ack(IOEpMessage):
-    UNK1 = 47, 32
-    IOVA = 31, 0
-
-class IOEp_Send(IOEpMessage):
-    WPTR = 31, 0
-
-class IORingBuf(Reloadable):
-    def __init__(self, ep, state, base):
-        self.ep = ep
-        self.dart = ep.dart
+class AFKRingBufSniffer(AFKRingBuf):
+    def __init__(self, ep, state, base, size):
+        super().__init__(ep, base, size)
         self.state = state
-        self.base = base
-        self.align = 0x40
+        self.rptr = getattr(state, "rptr", 0)
 
-    def init(self):
-        self.state.bufsize, unk = struct.unpack("<II", self.dart.ioread(0, self.base, 8))
-        self.state.rptr = 0
+    def update_rptr(self, rptr):
+        self.state.rptr = rptr
 
-    def read(self, max=None, wptr=None):
-        wptr2 = struct.unpack("<I", self.dart.ioread(0, self.base + 0x80, 4))[0]
-        assert wptr is None or wptr == wptr2
+    def update_wptr(self):
+        raise NotImplementedError()
 
-        rptr = self.state.rptr
-        while wptr2 != rptr:
-            hdr = self.dart.ioread(0, self.base + 0xc0 + rptr, 16)
-            rptr += 16
-            magic, size = struct.unpack("<4sI", hdr[:8])
-            assert magic == b"IOP "
-            if size > (self.state.bufsize - rptr - 16):
-                hdr = self.dart.ioread(0, self.base + 0xc0, 16)
-                rptr = 16
-                magic, size = struct.unpack("<4sI", hdr[:8])
-                assert magic == b"IOP "
+    def get_wptr(self):
+        return struct.unpack("<I", self.read_buf(2 * self.BLOCK_SIZE, 4))[0]
 
-            payload = self.dart.ioread(0, self.base + 0xc0 + rptr, size)
-            rptr = (align_up(rptr + size, self.align)) % self.state.bufsize
-            self.state.rptr = rptr
-            yield hdr[8:] + payload
-            if max is not None:
-                max -= 1
-                if max <= 0:
-                    break
+    def read_buf(self, off, size):
+        return self.ep.dart.ioread(0, self.base + off, size)
 
-class IOEp(EP):
-    BASE_MESSAGE = IOEp_Generic
+class AFKEp(EP):
+    BASE_MESSAGE = AFKEPMessage
 
     def __init__(self, tracer, epid):
         super().__init__(tracer, epid)
+        self.txbuf = None
+        self.rxbuf = None
         self.state.txbuf = EPState()
         self.state.rxbuf = EPState()
         self.state.shmem_iova = None
+        self.state.txbuf_info = None
+        self.state.rxbuf_info = None
         self.state.verbose = 1
 
     def start(self):
@@ -85,8 +58,14 @@ class IOEp(EP):
     def create_bufs(self):
         if not self.state.shmem_iova:
             return
-        self.txbuf = IORingBuf(self, self.state.txbuf, self.state.shmem_iova)
-        self.rxbuf = IORingBuf(self, self.state.rxbuf, self.state.shmem_iova + 0x4000)
+        if not self.txbuf and self.state.txbuf_info:
+            off, size = self.state.txbuf_info
+            self.txbuf = AFKRingBufSniffer(self, self.state.txbuf,
+                                           self.state.shmem_iova + off, size)
+        if not self.rxbuf and self.state.rxbuf_info:
+            off, size = self.state.rxbuf_info
+            self.rxbuf = AFKRingBufSniffer(self, self.state.rxbuf,
+                                           self.state.shmem_iova + off, size)
 
     def add_mon(self):
         if self.state.shmem_iova:
@@ -98,34 +77,109 @@ class IOEp(EP):
 
     GetBuf =        msg_log(0x89, DIR.RX)
 
-    @msg(0xa1, DIR.TX, IOEp_SetBuf_Ack)
+    Shutdown =      msg_log(0xc0, DIR.TX)
+    Shutdown_Ack =  msg_log(0xc1, DIR.RX)
+
+    @msg(0xa1, DIR.TX, AFKEP_GetBuf_Ack)
     def GetBuf_Ack(self, msg):
-        self.state.shmem_iova = msg.IOVA
+        self.state.shmem_iova = msg.DVA
+        self.txbuf = None
+        self.rxbuf = None
+        self.state.txbuf = EPState()
+        self.state.rxbuf = EPState()
+        self.state.txbuf_info = None
+        self.state.rxbuf_info = None
         #self.add_mon()
 
-    @msg(0xa2, DIR.TX, IOEp_Send)
+    @msg(0xa2, DIR.TX, AFKEP_Send)
     def Send(self, msg):
-        for data in self.txbuf.read(wptr=msg.WPTR):
-            if self.state.verbose >= 1:
+        for data in self.txbuf.read():
+            if self.state.verbose >= 3:
                 self.log(f">TX rptr={self.txbuf.state.rptr:#x}")
-                chexdump(data)
+                chexdump(data, print_fn=self.log)
+            self.handle_ipc(data, dir=">")
         return True
 
     Hello =         msg_log(0xa3, DIR.TX)
 
-    @msg(0x85, DIR.RX, IOEpMessage)
+    @msg(0x85, DIR.RX, AFKEPMessage)
     def Recv(self, msg):
         for data in self.rxbuf.read():
-            if self.state.verbose >= 1:
+            if self.state.verbose >= 3:
                 self.log(f"<RX rptr={self.rxbuf.state.rptr:#x}")
-                chexdump(data)
+                chexdump(data, print_fn=self.log)
+            self.handle_ipc(data, dir="<")
         return True
 
-    @msg(0x8b, DIR.RX)
-    def BufInitialized(self, msg):
+    def handle_ipc(self, data, dir=None):
+        pass
+
+    @msg(0x8a, DIR.RX, AFKEP_InitRB)
+    def InitTX(self, msg):
+        off = msg.OFFSET * AFKRingBuf.BLOCK_SIZE
+        size = msg.SIZE * AFKRingBuf.BLOCK_SIZE
+        self.state.txbuf_info = (off, size)
         self.create_bufs()
-        self.txbuf.init()
-        self.rxbuf.init()
+
+    @msg(0x8b, DIR.RX, AFKEP_InitRB)
+    def InitRX(self, msg):
+        off = msg.OFFSET * AFKRingBuf.BLOCK_SIZE
+        size = msg.SIZE * AFKRingBuf.BLOCK_SIZE
+        self.state.rxbuf_info = (off, size)
+        self.create_bufs()
+
+class EPICEp(AFKEp):
+    def handle_ipc(self, data, dir=None):
+        fd = BytesIO(data)
+        hdr = EPICHeader.parse_stream(fd)
+        sub = EPICSubHeader.parse_stream(fd)
+
+        self.log(f"{dir}Ch {hdr.channel} Type {hdr.type} Ver {hdr.version} Tag {hdr.seq}")
+        self.log(f"  Len {sub.length} Ver {sub.version} Cat {sub.category} Type {sub.type:#x} Seq {sub.seq}")
+        chexdump(data, print_fn=self.log)
+
+        if sub.category == EPICCategory.REPORT:
+            self.handle_report(hdr, sub, fd)
+        if sub.category == EPICCategory.NOTIFY:
+            self.handle_notify(hdr, sub, fd)
+        elif sub.category == EPICCategory.REPLY:
+            self.handle_reply(hdr, sub, fd)
+        elif sub.category == EPICCategory.COMMAND:
+            self.handle_cmd(hdr, sub, fd)
+
+    def handle_report(self, hdr, sub, fd):
+        if sub.type == 0x30:
+            init = EPICAnnounce.parse_stream(fd)
+            self.log(f"Init: {init.name}")
+            self.log(f"  Props: {init.props}")
+        else:
+            self.log(f"Report {sub.type:#x}")
+            chexdump(fd.read(), print_fn=self.log)
+
+    def handle_notify(self, hdr, sub, fd):
+        self.log(f"Notify:")
+        chexdump(fd.read(), print_fn=self.log)
+
+    def handle_reply(self, hdr, sub, fd):
+        cmd = EPICCmd.parse_stream(fd)
+        payload = fd.read()
+        self.log(f"Response {sub.type:#x}: {cmd.retcode:#x}")
+        if payload:
+            self.log("Inline payload:")
+            chexdump(payload, print_fn=self.log)
+        if cmd.rxbuf:
+            self.log(f"RX buf @ {cmd.rxbuf:#x} ({cmd.rxlen:#x} bytes):")
+            chexdump(self.dart.ioread(0, cmd.rxbuf, cmd.rxlen), print_fn=self.log)
+
+    def handle_cmd(self, hdr, sub, fd):
+        cmd = EPICCmd.parse_stream(fd)
+        payload = fd.read()
+        self.log(f"Command {sub.type:#x}: {cmd.retcode:#x}")
+        if payload:
+            chexdump(payload, print_fn=self.log)
+        if cmd.txbuf:
+            self.log(f"TX buf @ {cmd.txbuf:#x} ({cmd.txlen:#x} bytes):")
+            chexdump(self.dart.ioread(0, cmd.txbuf, cmd.txlen), print_fn=self.log)
 
 KNOWN_MSGS = {
     "A000": "IOMFB::UPPipeAP_H13P::late_init_signal()",
@@ -176,24 +230,25 @@ KNOWN_MSGS = {
 
     "A100": "IOMFB::UPPipe2::get_gamma_table_gated(IOMFBGammaTable*)",
     "A101": "IOMFB::UPPipe2::set_gamma_table_gated(IOMFBGammaTable const*)",
-    "A102": "IOMFB::UPPipe2::did_black_frame(IOMFB::AppleRegisterStream*)",
-    "A103": "IOMFB::UPPipe2::test_control(IOMFB_TC_Cmd, unsigned int)",
-    "A104": "IOMFB::UPPipe2::get_config_frame_size(unsigned int*, unsigned int*) const",
-    "A105": "IOMFB::UPPipe2::set_config_frame_size(unsigned int, unsigned int) const",
-    "A106": "IOMFB::UPPipe2::program_config_frame_size() const",
-    "A107": "IOMFB::UPPipe2::read_blend_crc() const",
-    "A108": "IOMFB::UPPipe2::read_config_crc() const",
-    "A109": "IOMFB::UPPipe2::disable_wpc_calibration(bool)",
-    "A110": "IOMFB::UPPipe2::vftg_is_running(IOMFB::AppleRegisterStream*) const",
-    "A111": "IOMFB::UPPipe2::vftg_debug(IOMFB::AppleRegisterStream*, unsigned int) const",
-    "A112": "IOMFB::UPPipe2::vftg_set_color_channels(unsigned int, unsigned int, unsigned int)",
-    "A113": "IOMFB::UPPipe2::set_color_filter_scale(int)",
-    "A114": "IOMFB::UPPipe2::set_corner_temps(int const*)",
-    "A115": "IOMFB::UPPipe2::reset_aot_enabled() const",
-    "A116": "IOMFB::UPPipe2::aot_enabled() const",
-    "A117": "IOMFB::UPPipe2::aot_active() const",
-    "A118": "IOMFB::UPPipe2::set_timings_enabled(IOMFB::AppleRegisterStream*, bool)",
-    "A119": "IOMFB::UPPipe2::get_frame_size(IOMFB::AppleRegisterStream*, unsigned int*, unsigned int*)",
+    "A102": "IOMFB::UPPipe2::test_control(IOMFB_TC_Cmd, unsigned int)",
+    "A103": "IOMFB::UPPipe2::get_config_frame_size(unsigned int*, unsigned int*) const",
+    "A104": "IOMFB::UPPipe2::set_config_frame_size(unsigned int, unsigned int) const",
+    "A105": "IOMFB::UPPipe2::program_config_frame_size() const",
+    "A106": "IOMFB::UPPipe2::read_blend_crc() const",
+    "A107": "IOMFB::UPPipe2::read_config_crc() const",
+    "A108": "IOMFB::UPPipe2::disable_wpc_calibration(bool)",
+    "A109": "IOMFB::UPPipe2::vftg_is_running(IOMFB::AppleRegisterStream*) const",
+    "A110": "IOMFB::UPPipe2::vftg_debug(IOMFB::AppleRegisterStream*, unsigned int) const",
+    "A111": "IOMFB::UPPipe2::vftg_set_color_channels(unsigned int, unsigned int, unsigned int)",
+    "A112": "IOMFB::UPPipe2::set_color_filter_scale(int)",
+    "A113": "IOMFB::UPPipe2::set_corner_temps(int const*)",
+    "A114": "IOMFB::UPPipe2::reset_aot_enabled() const",
+    "A115": "IOMFB::UPPipe2::aot_enabled() const",
+    "A116": "IOMFB::UPPipe2::aot_active() const",
+    "A117": "IOMFB::UPPipe2::set_timings_enabled(IOMFB::AppleRegisterStream*, bool)",
+    "A118": "IOMFB::UPPipe2::get_frame_size(IOMFB::AppleRegisterStream*, unsigned int*, unsigned int*)",
+    "A119": "IOMFB::UPPipe2::set_block(unsigned long long, unsigned int, unsigned int, unsigned long long const*, unsigned int, unsigned char const*, unsigned long, bool)",
+    "A121": "IOMFB::UPPipe2::get_buf_block(unsigned long long, unsigned int, unsigned int, unsigned long long const*, unsigned int, unsigned char const*, unsigned long, bool)",
     "A122": "IOMFB::UPPipe2::get_matrix(IOMFB_MatrixLocation, IOMFBColorFixedMatrix*) const",
     "A123": "IOMFB::UPPipe2::set_matrix(IOMFB_MatrixLocation, IOMFBColorFixedMatrix const*)",
     "A124": "IOMFB::UPPipe2::get_internal_timing_attributes_gated(IOMFB::RefreshTimingAttributes*) const",
@@ -260,41 +315,41 @@ KNOWN_MSGS = {
     "A434": "IOMobileFramebufferAP::splc_get_brightness(unsigned int*)",
     "A435": "IOMobileFramebufferAP::set_block_dcp(task*, unsigned int, unsigned int, unsigned long long const*, unsigned int, unsigned char const*, unsigned long)",
     "A436": "IOMobileFramebufferAP::get_block_dcp(task*, unsigned int, unsigned int, unsigned long long const*, unsigned int, unsigned char*, unsigned long) const",
-    "A437": "IOMobileFramebufferAP::swap_set_color_matrix(IOMFBColorFixedMatrix*, IOMFBColorMatrixFunction, unsigned int)",
-    "A438": "IOMobileFramebufferAP::set_parameter_dcp(IOMFBParameterName, unsigned long long const*, unsigned int)",
-    "A439": "IOMobileFramebufferAP::display_width() const",
-    "A440": "IOMobileFramebufferAP::display_height() const",
-    "A441": "IOMobileFramebufferAP::get_display_size(unsigned int*, unsigned int*) const",
-    "A442": "IOMobileFramebufferAP::do_create_default_frame_buffer() const",
-    "A443": "IOMobileFramebufferAP::printRegs()",
-    "A444": "IOMobileFramebufferAP::enable_disable_dithering(unsigned int)",
-    "A445": "IOMobileFramebufferAP::set_underrun_color(unsigned int)",
-    "A446": "IOMobileFramebufferAP::enable_disable_video_power_savings(unsigned int)",
-    "A447": "IOMobileFramebufferAP::set_video_dac_gain(unsigned int)",
-    "A448": "IOMobileFramebufferAP::set_line21_data(unsigned int)",
-    "A449": "IOMobileFramebufferAP::enableInternalToExternalMirroring(bool)",
-    "A450": "IOMobileFramebufferAP::getExternalMirroringCapability(IOMFBMirroringCapability*)",
-    "A451": "IOMobileFramebufferAP::setRenderingAngle(float*)",
-    "A452": "IOMobileFramebufferAP::setOverscanSafeRegion(IOMFBOverscanSafeRect*)",
-    "A453": "IOMobileFramebufferAP::first_client_open()",
-    "A454": "IOMobileFramebufferAP::last_client_close_dcp(unsigned int*)",
-    "A455": "IOMobileFramebufferAP::writeDebugInfo(unsigned long)",
-    "A456": "IOMobileFramebufferAP::flush_debug_flags(unsigned int)",
-    "A457": "IOMobileFramebufferAP::io_fence_notify(unsigned int, unsigned int, unsigned long long, IOMFBStatus)",
-    "A458": "IOMobileFramebufferAP::swap_wait_dcp(bool, unsigned int, unsigned int, unsigned int)",
-    "A459": "IOMobileFramebufferAP::setDisplayRefreshProperties()",
-    "A460": "IOMobileFramebufferAP::exportProperty(unsigned int, unsigned int)",
-    "A461": "IOMobileFramebufferAP::applyProperty(unsigned int, unsigned int)",
-    "A462": "IOMobileFramebufferAP::flush_supportsPower(bool)",
-    "A463": "IOMobileFramebufferAP::abort_swaps_dcp(IOMobileFramebufferUserClient*)",
-    "A464": "IOMobileFramebufferAP::swap_signal_gated(unsigned int, unsigned int)",
-    "A465": "IOMobileFramebufferAP::update_dfb(IOSurface*, unsigned int, unsigned int, unsigned long long)",
-    "A466": "IOMobileFramebufferAP::update_dfb(IOSurface*)",
-    "A467": "IOMobileFramebufferAP::setPowerState(unsigned long, bool, unsigned int*)",
-    "A468": "IOMobileFramebufferAP::isKeepOnScreen() const",
-    "A469": "IOMobileFramebufferAP::resetStats()",
-    "A470": "IOMobileFramebufferAP::set_has_frame_swap_function(bool)",
-    "A471": "IOMobileFramebufferAP::getPerformanceStats(unsigned int*, unsigned int*)",
+    "A438": "IOMobileFramebufferAP::swap_set_color_matrix(IOMFBColorFixedMatrix*, IOMFBColorMatrixFunction, unsigned int)",
+    "A439": "IOMobileFramebufferAP::set_parameter_dcp(IOMFBParameterName, unsigned long long const*, unsigned int)",
+    "A440": "IOMobileFramebufferAP::display_width() const",
+    "A441": "IOMobileFramebufferAP::display_height() const",
+    "A442": "IOMobileFramebufferAP::get_display_size(unsigned int*, unsigned int*) const",
+    "A443": "IOMobileFramebufferAP::do_create_default_frame_buffer() const",
+    "A444": "IOMobileFramebufferAP::printRegs()",
+    "A445": "IOMobileFramebufferAP::enable_disable_dithering(unsigned int)",
+    "A446": "IOMobileFramebufferAP::set_underrun_color(unsigned int)",
+    "A447": "IOMobileFramebufferAP::enable_disable_video_power_savings(unsigned int)",
+    "A448": "IOMobileFramebufferAP::set_video_dac_gain(unsigned int)",
+    "A449": "IOMobileFramebufferAP::set_line21_data(unsigned int)",
+    "A450": "IOMobileFramebufferAP::enableInternalToExternalMirroring(bool)",
+    "A451": "IOMobileFramebufferAP::getExternalMirroringCapability(IOMFBMirroringCapability*)",
+    "A452": "IOMobileFramebufferAP::setRenderingAngle(float*)",
+    "A453": "IOMobileFramebufferAP::setOverscanSafeRegion(IOMFBOverscanSafeRect*)",
+    "A454": "IOMobileFramebufferAP::first_client_open()",
+    "A455": "IOMobileFramebufferAP::last_client_close_dcp(unsigned int*)",
+    "A456": "IOMobileFramebufferAP::writeDebugInfo(unsigned long)",
+    "A457": "IOMobileFramebufferAP::flush_debug_flags(unsigned int)",
+    "A458": "IOMobileFramebufferAP::io_fence_notify(unsigned int, unsigned int, unsigned long long, IOMFBStatus)",
+    "A459": "IOMobileFramebufferAP::swap_wait_dcp(bool, unsigned int, unsigned int, unsigned int)",
+    "A460": "IOMobileFramebufferAP::setDisplayRefreshProperties()",
+    "A461": "IOMobileFramebufferAP::exportProperty(unsigned int, unsigned int)",
+    "A462": "IOMobileFramebufferAP::applyProperty(unsigned int, unsigned int)",
+    "A463": "IOMobileFramebufferAP::flush_supportsPower(bool)",
+    "A464": "IOMobileFramebufferAP::abort_swaps_dcp(IOMobileFramebufferUserClient*)",
+    "A465": "IOMobileFramebufferAP::swap_signal_gated(unsigned int, unsigned int)",
+    "A466": "IOMobileFramebufferAP::update_dfb(IOSurface*, unsigned int, unsigned int, unsigned long long)",
+    "A467": "IOMobileFramebufferAP::update_dfb(IOSurface*)",
+    "A468": "IOMobileFramebufferAP::setPowerState(unsigned long, bool, unsigned int*)",
+    "A469": "IOMobileFramebufferAP::isKeepOnScreen() const",
+    "A470": "IOMobileFramebufferAP::resetStats()",
+    "A471": "IOMobileFramebufferAP::set_has_frame_swap_function(bool)",
+    "A472": "IOMobileFramebufferAP::getPerformanceStats(unsigned int*, unsigned int*)",
 
     "D000": "bool IOMFB::UPPipeAP_H13P::did_boot_signal()",
     "D001": "bool IOMFB::UPPipeAP_H13P::did_power_on_signal()",
@@ -321,12 +376,13 @@ KNOWN_MSGS = {
     "D115": "bool UnifiedPipeline2::upload_trace_end(char const*)",
     "D116": "bool UnifiedPipeline2::start_hardware_boot()",
     "D117": "bool UnifiedPipeline2::is_dark_boot()",
-    "D118": "bool UnifiedPipeline2::detect_fastsim()",
-    "D119": "bool UnifiedPipeline2::read_edt_data(char const*, unsigned int, unsigned int*) const",
-    "D120": "bool UnifiedPipeline2::read_edt_string(char const*, char*, unsigned int*) const",
-    "D121": "bool UnifiedPipeline2::setDCPAVPropStart(unsigned int)",
-    "D122": "bool UnifiedPipeline2::setDCPAVPropChunk(unsigned char const*, unsigned int, unsigned int)",
-    "D123": "bool UnifiedPipeline2::setDCPAVPropEnd(char const*)",
+    "D118": "bool UnifiedPipeline2::is_waking_from_hibernate()",
+    "D119": "bool UnifiedPipeline2::detect_fastsim()",
+    "D120": "bool UnifiedPipeline2::read_edt_data(char const*, unsigned int, unsigned int*) const",
+    "D121": "bool UnifiedPipeline2::read_edt_string(char const*, char*, unsigned int*) const",
+    "D122": "bool UnifiedPipeline2::setDCPAVPropStart(unsigned int)",
+    "D123": "bool UnifiedPipeline2::setDCPAVPropChunk(unsigned char const*, unsigned int, unsigned int)",
+    "D124": "bool UnifiedPipeline2::setDCPAVPropEnd(char const*)",
 
     "D200": "uint64_t IOMFB::UPPipe2::get_default_idle_caching_method()",
     "D201": "IOMFBStatus IOMFB::UPPipe2::map_buf(IOMFB::BufferDescriptor*, unsigned long*, unsigned long long*, bool)",
@@ -633,37 +689,37 @@ class DCPEp(EP):
             else:
                 self.state.op_verb[i] = verb
 
-class SystemService(IOEp):
+class SystemService(EPICEp):
     NAME = "system"
 
-class TestService(IOEp):
+class TestService(EPICEp):
     NAME = "test"
 
-class DCPExpertService(IOEp):
+class DCPExpertService(EPICEp):
     NAME = "dcpexpert"
 
-class Disp0Service(IOEp):
+class Disp0Service(EPICEp):
     NAME = "disp0"
 
-class DPTXService(IOEp):
+class DPTXService(EPICEp):
     NAME = "dptx"
 
-class DPSACService(IOEp):
+class DPSACService(EPICEp):
     NAME = "dpsac"
 
-class DPDevService(IOEp):
+class DPDevService(EPICEp):
     NAME = "dpdev"
 
-class MDCP29XXService(IOEp):
+class MCDP29XXService(EPICEp):
     NAME = "mcdp29xx"
 
-class AVService(IOEp):
+class AVService(EPICEp):
     NAME = "av"
 
-class HDCPService(IOEp):
+class HDCPService(EPICEp):
     NAME = "hdcp"
 
-class RemoteAllocService(IOEp):
+class RemoteAllocService(EPICEp):
     NAME = "remotealloc"
 
 class DCPTracer(ASCTracer):
@@ -673,14 +729,14 @@ class DCPTracer(ASCTracer):
         0x22: DCPExpertService,
         0x23: Disp0Service,
         0x24: DPTXService,
-        0x25: IOEp, # dcpav-power-ep
+        0x25: EPICEp, # dcpav-power-ep
         0x26: DPSACService,
         0x27: DPDevService,
-        0x28: MDCP29XXService,
+        0x28: MCDP29XXService,
         0x29: AVService,
-        0x2a: IOEp, # dcpdptx-port-ep
+        0x2a: EPICEp, # dcpdptx-port-ep
         0x2b: HDCPService,
-        0x2c: IOEp, # cb-ap-to-dcp-service-ep
+        0x2c: EPICEp, # cb-ap-to-dcp-service-ep
         0x2d: RemoteAllocService,
         0x37: DCPEp, # iomfb-link
     }
@@ -695,7 +751,7 @@ dart_dcp_tracer.start()
 dart_disp0_tracer = DARTTracer(hv, "/arm-io/dart-disp0")
 dart_disp0_tracer.start()
 
-def readmem_iova(addr, size):
+def readmem_iova(addr, size, readfn):
     try:
         return dart_dcp_tracer.dart.ioread(0, addr, size)
     except Exception as e:

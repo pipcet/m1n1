@@ -185,7 +185,7 @@ class BaseASCTracer(ADTDevTracer):
 
 ## Management endpoint
 
-from ..fw.asc.mgmt import ManagementMessage, Mgmt_EPMap, Mgmt_EPMap_Ack, Mgmt_StartEP, Mgmt_StartSyslog
+from ..fw.asc.mgmt import ManagementMessage, Mgmt_EPMap, Mgmt_EPMap_Ack, Mgmt_StartEP, Mgmt_SetAPPower, Mgmt_SetIOPPower, Mgmt_IOPPowerAck
 
 class Management(EP):
     BASE_MESSAGE = ManagementMessage
@@ -219,8 +219,11 @@ class Management(EP):
 
     EPMap_Ack = msg_log(8, DIR.TX, Mgmt_EPMap_Ack)
 
-    StartSyslog = msg_log(0x0b, DIR.TX, Mgmt_StartSyslog)
-    StartSyslog_Ack = msg_log(0x0b, DIR.RX, Mgmt_StartSyslog)
+    SetIOPPower = msg_log(6, DIR.TX, Mgmt_SetIOPPower)
+    SetIOPPowerAck = msg_log(7, DIR.TX, Mgmt_IOPPowerAck)
+
+    SetAPPower = msg_log(0x0b, DIR.TX, Mgmt_SetAPPower)
+    SetAPPowerAck = msg_log(0x0b, DIR.RX, Mgmt_SetAPPower)
 
 ## Syslog endpoint
 
@@ -229,12 +232,15 @@ from ..fw.asc.syslog import SyslogMessage, Syslog_Init, Syslog_GetBuf, Syslog_Lo
 class Syslog(EP):
     BASE_MESSAGE = SyslogMessage
 
-    GetBuf = msg_log(1, DIR.RX, Syslog_GetBuf)
-
     @msg(8, DIR.RX, Syslog_Init)
     def Init(self, msg):
         self.state.count = msg.COUNT
         self.state.entrysize = msg.ENTRYSIZE
+
+    @msg(1, DIR.RX, Syslog_GetBuf)
+    def GetBuf(self, msg):
+        if msg.DVA:
+            self.state.syslog_buf = msg.DVA
 
     @msg(1, DIR.TX, Syslog_GetBuf)
     def GetBuf_Ack(self, msg):

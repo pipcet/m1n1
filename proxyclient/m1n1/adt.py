@@ -136,6 +136,11 @@ PMGREvents = SafeGreedyRange(Struct(
     "name" / PaddedString(16, "ascii"),
 ))
 
+GPUPerfState = Struct(
+    "freq" / Int32ul,
+    "volt" / Int32ul,
+)
+
 DEV_PROPERTIES = {
     "pmgr": {
         "*": {
@@ -169,10 +174,26 @@ DEV_PROPERTIES = {
             "config-data": SafeGreedyRange(Int32ul),
         }
     },
+    "*pmu*": {
+        "*": {
+            "info-*name*": CString("ascii"),
+            "info-*": SafeGreedyRange(Hex(Int32ul)),
+        },
+    },
     "stockholm-spmi": {
         "*": {
             "required-functions": ADTStringList,
         },
+    },
+    "sgx": {
+        "*": {
+            "perf-states": SafeGreedyRange(GPUPerfState),
+            "*-kp": Float32l,
+            "*-ki": Float32l,
+            "*-ki-*": Float32l,
+            "*-gain*": Float32l,
+            "*-scale*": Float32l,
+        }
     },
     "arm-io": {
         "*": {
@@ -194,7 +215,11 @@ def parse_prop(node, path, node_name, name, v, is_template=False):
     if is_template:
         t = CString("ascii")
 
-    dev_props = DEV_PROPERTIES.get(path, DEV_PROPERTIES.get(node_name, None))
+    dev_props = None
+    for k, pt in DEV_PROPERTIES.items():
+        if fnmatch.fnmatch(node_name, k) or fnmatch.fnmatch(path, k):
+            dev_props = pt
+            break
 
     possible_match = False
     if dev_props:
@@ -395,6 +420,7 @@ class ADTNode:
 
     def __getattr__(self, attr):
         attr = attr.replace("_", "-")
+        attr = attr.replace("--", "_")
         if attr in self._properties:
             return self._properties[attr]
         raise AttributeError(attr)
@@ -404,6 +430,7 @@ class ADTNode:
             self.__dict__[attr] = value
             return
         attr = attr.replace("_", "-")
+        attr = attr.replace("--", "_")
         self._properties[attr] = value
 
     def __delattr__(self, attr):

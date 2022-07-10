@@ -27,7 +27,7 @@ class RegCache(Reloadable):
         self.cache[addr] = data
 
     def read(self, addr, width):
-        if self.hv.ctx:
+        if self.hv.ctx or not self.hv.started:
             data = self.u.read(addr, width)
             self.cache[addr] = data
             return data
@@ -92,7 +92,7 @@ class Tracer(Reloadable):
             if rcls is not None:
                 value = rcls(evt.data)
 
-        if self.verbose >= 3 or reg is None and self.verbose >= 1:
+        if self.verbose >= 3 or (reg is None and self.verbose >= 1):
             if reg is None:
                 s = f"{evt.addr:#x} = {value:#x}"
             else:
@@ -111,7 +111,7 @@ class Tracer(Reloadable):
                     handler(value, index)
                 else:
                     handler(value)
-            elif self.verbose >= 2:
+            elif self.verbose == 2:
                 s = f"{regmap.get_name(evt.addr)} = {value!s}"
                 m = "+" if evt.flags.MULTI else " "
                 self.log(f"MMIO: {t.upper()}.{1<<evt.flags.WIDTH:<2}{m} " + s)
@@ -142,8 +142,8 @@ class Tracer(Reloadable):
     def stop(self):
         self.hv.clear_tracers(self.ident)
 
-    def log(self, msg):
-        self.hv.log(f"[{self.ident}] {msg}")
+    def log(self, msg, show_cpu=True):
+        self.hv.log(f"[{self.ident}] {msg}", show_cpu=show_cpu)
 
 class PrintTracer(Tracer):
     def __init__(self, hv, device_addr_tbl):
@@ -151,20 +151,23 @@ class PrintTracer(Tracer):
         self.device_addr_tbl = device_addr_tbl
         self.log_file = None
 
-    def event_mmio(self, evt):
-        dev, zone = self.device_addr_tbl.lookup(evt.addr)
+    def event_mmio(self, evt, name=None, start=None):
+        dev, zone2 = self.device_addr_tbl.lookup(evt.addr)
+        if name is None:
+            name = dev
+            start = zone2.start
         t = "W" if evt.flags.WRITE else "R"
         m = "+" if evt.flags.MULTI else " "
-        logline = (f"[cpu{evt.flags.CPU}][0x{evt.pc:016x}] MMIO: {t}.{1<<evt.flags.WIDTH:<2}{m} " +
-                   f"0x{evt.addr:x} ({dev}, offset {evt.addr - zone.start:#04x}) = 0x{evt.data:x}")
+        logline = (f"[cpu{evt.flags.CPU}] [0x{evt.pc:016x}] MMIO: {t}.{1<<evt.flags.WIDTH:<2}{m} " +
+                   f"0x{evt.addr:x} ({name}, offset {evt.addr - start:#04x}) = 0x{evt.data:x}")
         print(logline)
         if self.log_file:
             self.log_file.write(f"# {logline}\n")
             width = 8 << evt.flags.WIDTH
             if evt.flags.WRITE:
-                stmt = f"p.write{width}({zone.start:#x} + {evt.addr - zone.start:#x}, {evt.data:#x})\n"
+                stmt = f"p.write{width}({start:#x} + {evt.addr - start:#x}, {evt.data:#x})\n"
             else:
-                stmt = f"p.read{width}({zone.start:#x} + {evt.addr - zone.start:#x})\n"
+                stmt = f"p.read{width}({start:#x} + {evt.addr - start:#x})\n"
             self.log_file.write(stmt)
 
 class ADTDevTracer(Tracer):
@@ -177,9 +180,9 @@ class ADTDevTracer(Tracer):
         self.dev = hv.adt[devpath]
 
     @classmethod
-    def _reloadcls(cls):
-        cls.REGMAPS = [i._reloadcls() if i else None for i in cls.REGMAPS]
-        return super()._reloadcls()
+    def _reloadcls(cls, force=False):
+        cls.REGMAPS = [i._reloadcls(force) if i else None for i in cls.REGMAPS]
+        return super()._reloadcls(force)
 
     def start(self):
         for i in range(len(self.dev.reg)):

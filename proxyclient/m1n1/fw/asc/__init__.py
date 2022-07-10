@@ -7,7 +7,7 @@ from .mgmt import ASCManagementEndpoint
 from .kdebug import ASCKDebugEndpoint
 from .ioreporting import ASCIOReportingEndpoint
 from .oslog import ASCOSLogEndpoint
-from .base import ASCBaseEndpoint
+from .base import ASCBaseEndpoint, ASCTimeout
 from ...hw.asc import ASC
 
 __all__ = []
@@ -16,8 +16,6 @@ class ASCDummyEndpoint(ASCBaseEndpoint):
     SHORT = "dummy"
 
 class StandardASC(ASC):
-    DVA_OFFSET = 0
-
     ENDPOINTS = {
         0: ASCManagementEndpoint,
         1: ASCCrashLogEndpoint,
@@ -35,6 +33,7 @@ class StandardASC(ASC):
         self.dart = dart
         self.eps = []
         self.epcls = {}
+        self.dva_offset = 0
 
         for cls in type(self).mro():
             eps = getattr(cls, "ENDPOINTS", None)
@@ -44,10 +43,16 @@ class StandardASC(ASC):
                 if k not in self.epcls:
                     self.epcls[k] = v
 
+    def addr(self, addr):
+        return f"{addr:#x}"
+
     def iomap(self, addr, size):
         if self.dart is None:
             return addr
-        return self.DVA_OFFSET | self.dart.iomap(0, addr, size)
+        dva = self.dva_offset | self.dart.iomap(0, addr, size)
+
+        self.dart.invalidate_streams(1)
+        return dva
 
     def ioalloc(self, size):
         paddr = self.u.memalign(0x4000, size)
@@ -66,6 +71,12 @@ class StandardASC(ASC):
         else:
             return self.iface.writemem(dva, data)
 
+    def iotranslate(self, dva, size):
+        if self.dart:
+            return self.dart.iotranslate(0, dva & 0xFFFFFFFF, size)
+        else:
+            return self.iface.readmem(dva, size)
+
     def start_ep(self, epno):
         if epno not in self.epcls:
             raise Exception(f"Unknown endpoint {epno:#x}")
@@ -78,11 +89,20 @@ class StandardASC(ASC):
         ep.start()
 
     def start(self):
-        self.mgmt.start()
-        self.mgmt.wait_boot()
+        if self.is_running():
+            self.mgmt.start()
+        else:
+            self.boot()
+        self.mgmt.wait_boot(1)
 
-    def stop(self):
-        self.mgmt.stop()
+    def stop(self, state=0x10):
+        for ep in list(self.epmap.values())[::-1]:
+            if ep.epnum < 0x10:
+                continue
+            ep.stop()
+        self.mgmt.stop(state=state)
+        self.epmap = {}
+        self.add_ep(0, ASCManagementEndpoint(self, 0))
 
     def boot(self):
         print("Booting ASC...")

@@ -40,6 +40,7 @@ static int pmgr_initialized = 0;
 
 static int pmgr_path[8];
 static int pmgr_offset;
+static int pmgr_dies;
 
 static const u32 *pmgr_ps_regs = NULL;
 static u32 pmgr_ps_regs_len = 0;
@@ -93,17 +94,19 @@ static int pmgr_find_device(u16 id, const struct pmgr_device **device)
     return -1;
 }
 
-static uintptr_t pmgr_device_get_addr(const struct pmgr_device *device)
+static uintptr_t pmgr_device_get_addr(u8 die, const struct pmgr_device *device)
 {
     uintptr_t addr = pmgr_get_psreg(device->psreg_idx);
     if (addr == 0)
         return 0;
 
+    addr += PMGR_DIE_OFFSET * die;
+
     addr += (device->addr_offset << 3);
     return addr;
 }
 
-static int pmgr_set_mode_recursive(u16 id, u8 target_mode, bool recurse)
+static int pmgr_set_mode_recursive(u8 die, u16 id, u8 target_mode, bool recurse)
 {
     if (!pmgr_initialized) {
         printf("pmgr: pmgr_set_mode_recursive() called before successful pmgr_init()\n");
@@ -119,7 +122,7 @@ static int pmgr_set_mode_recursive(u16 id, u8 target_mode, bool recurse)
         return -1;
 
     if (!(device->flags & PMGR_FLAG_VIRTUAL)) {
-        uintptr_t addr = pmgr_device_get_addr(device);
+        uintptr_t addr = pmgr_device_get_addr(die, device);
         if (!addr)
             return -1;
         if (pmgr_set_mode(addr, target_mode))
@@ -130,7 +133,8 @@ static int pmgr_set_mode_recursive(u16 id, u8 target_mode, bool recurse)
 
     for (int i = 0; i < 2; i++) {
         if (device->parent[i]) {
-            int ret = pmgr_set_mode_recursive(device->parent[i], target_mode, true);
+            u16 parent = FIELD_GET(PMGR_DEVICE_ID, device->parent[i]);
+            int ret = pmgr_set_mode_recursive(die, parent, target_mode, true);
             if (ret < 0)
                 return ret;
         }
@@ -139,17 +143,21 @@ static int pmgr_set_mode_recursive(u16 id, u8 target_mode, bool recurse)
     return 0;
 }
 
-int pmgr_clock_enable(u16 id)
+int pmgr_power_enable(u32 id)
 {
-    return pmgr_set_mode_recursive(id, PMGR_PS_ACTIVE, true);
+    u16 device = FIELD_GET(PMGR_DEVICE_ID, id);
+    u8 die = FIELD_GET(PMGR_DIE_ID, id);
+    return pmgr_set_mode_recursive(die, device, PMGR_PS_ACTIVE, true);
 }
 
-int pmgr_clock_disable(u16 id)
+int pmgr_power_disable(u32 id)
 {
-    return pmgr_set_mode_recursive(id, PMGR_PS_PWRGATE, false);
+    u16 device = FIELD_GET(PMGR_DEVICE_ID, id);
+    u8 die = FIELD_GET(PMGR_DIE_ID, id);
+    return pmgr_set_mode_recursive(die, device, PMGR_PS_PWRGATE, false);
 }
 
-static int pmgr_adt_find_clocks(const char *path, const u32 **clocks, u32 *n_clocks)
+static int pmgr_adt_find_devices(const char *path, const u32 **devices, u32 *n_devices)
 {
     int node_offset = adt_path_offset(adt, path);
     if (node_offset < 0) {
@@ -157,47 +165,95 @@ static int pmgr_adt_find_clocks(const char *path, const u32 **clocks, u32 *n_clo
         return -1;
     }
 
-    *clocks = adt_getprop(adt, node_offset, "clock-gates", n_clocks);
-    if (*clocks == NULL || *n_clocks == 0) {
+    *devices = adt_getprop(adt, node_offset, "clock-gates", n_devices);
+    if (*devices == NULL || *n_devices == 0) {
         printf("pmgr: Error getting %s clock-gates.\n", path);
         return -1;
     }
 
-    *n_clocks /= 4;
+    *n_devices /= 4;
 
     return 0;
 }
 
-static int pmgr_adt_clocks_set_mode(const char *path, u8 target_mode, int recurse)
+static int pmgr_adt_devices_set_mode(const char *path, u8 target_mode, int recurse)
 {
-    const u32 *clocks;
-    u32 n_clocks;
+    const u32 *devices;
+    u32 n_devices;
     int ret = 0;
 
-    if (pmgr_adt_find_clocks(path, &clocks, &n_clocks) < 0)
+    if (pmgr_adt_find_devices(path, &devices, &n_devices) < 0)
         return -1;
 
-    for (u32 i = 0; i < n_clocks; ++i) {
-        if (pmgr_set_mode_recursive(clocks[i], target_mode, recurse))
+    for (u32 i = 0; i < n_devices; ++i) {
+        u16 device = FIELD_GET(PMGR_DEVICE_ID, devices[i]);
+        u8 die = FIELD_GET(PMGR_DIE_ID, devices[i]);
+        if (pmgr_set_mode_recursive(die, device, target_mode, recurse))
             ret = -1;
     }
 
     return ret;
 }
 
-int pmgr_adt_clocks_enable(const char *path)
+int pmgr_adt_power_enable(const char *path)
 {
-    int ret = pmgr_adt_clocks_set_mode(path, PMGR_PS_ACTIVE, true);
+    int ret = pmgr_adt_devices_set_mode(path, PMGR_PS_ACTIVE, true);
     return ret;
 }
 
-int pmgr_adt_clocks_disable(const char *path)
+int pmgr_adt_power_disable(const char *path)
 {
-    return pmgr_adt_clocks_set_mode(path, PMGR_PS_PWRGATE, false);
+    return pmgr_adt_devices_set_mode(path, PMGR_PS_PWRGATE, false);
+}
+
+int pmgr_reset(int die, const char *name)
+{
+    const struct pmgr_device *dev = NULL;
+
+    for (unsigned int i = 0; i < pmgr_devices_len; ++i) {
+        if (strncmp(pmgr_devices[i].name, name, 0x10) == 0) {
+            dev = &pmgr_devices[i];
+            break;
+        }
+    }
+
+    if (!dev) {
+        printf("pmgr: unable to find device %s\n", name);
+        return -1;
+    }
+
+    if (die < 0 || die > 16) {
+        printf("pmgr: invalid die id %d for devicece %s\n", die, name);
+        return -1;
+    }
+
+    uintptr_t addr = pmgr_device_get_addr(die, dev);
+
+    u32 reg = read32(addr);
+    if (FIELD_GET(PMGR_PS_ACTUAL, reg) != PMGR_PS_ACTIVE) {
+        printf("pmgr: will not reset disabled device %s\n", name);
+        return -1;
+    }
+
+    set32(addr, PMGR_DEV_DISABLE);
+    set32(addr, PMGR_RESET);
+    udelay(1);
+    clear32(addr, PMGR_RESET);
+    clear32(addr, PMGR_DEV_DISABLE);
+
+    return 0;
 }
 
 int pmgr_init(void)
 {
+    int node = adt_path_offset(adt, "/arm-io");
+    if (node < 0) {
+        printf("pmgr: Error getting /arm-io node\n");
+        return -1;
+    }
+    if (ADT_GETPROP(adt, node, "die-count", &pmgr_dies) < 0)
+        pmgr_dies = 1;
+
     pmgr_offset = adt_path_offset_trace(adt, "/arm-io/pmgr", pmgr_path);
     if (pmgr_offset < 0) {
         printf("pmgr: Error getting /arm-io/pmgr node\n");
@@ -221,49 +277,51 @@ int pmgr_init(void)
 
     printf("pmgr: Cleaning up device states...\n");
 
-    for (size_t i = 0; i < pmgr_devices_len; ++i) {
-        const struct pmgr_device *device = &pmgr_devices[i];
+    for (u8 die = 0; die < pmgr_dies; ++die) {
+        for (size_t i = 0; i < pmgr_devices_len; ++i) {
+            const struct pmgr_device *device = &pmgr_devices[i];
 
-        if ((device->flags & PMGR_FLAG_VIRTUAL))
-            continue;
+            if ((device->flags & PMGR_FLAG_VIRTUAL))
+                continue;
 
-        uintptr_t addr = pmgr_device_get_addr(device);
-        if (!addr)
-            continue;
+            uintptr_t addr = pmgr_device_get_addr(die, device);
+            if (!addr)
+                continue;
 
-        u32 reg = read32(addr);
+            u32 reg = read32(addr);
 
-        if (reg & PMGR_AUTO_ENABLE || FIELD_GET(PMGR_PS_TARGET, reg) == PMGR_PS_ACTIVE) {
-            for (int j = 0; j < 2; j++) {
-                if (device->parent[j]) {
-                    const struct pmgr_device *pdevice;
-                    if (pmgr_find_device(device->parent[j], &pdevice)) {
-                        printf("pmgr: Failed to find parent #%d for %s\n", device->parent[j],
-                               device->name);
-                        continue;
-                    }
+            if (reg & PMGR_AUTO_ENABLE || FIELD_GET(PMGR_PS_TARGET, reg) == PMGR_PS_ACTIVE) {
+                for (int j = 0; j < 2; j++) {
+                    if (device->parent[j]) {
+                        const struct pmgr_device *pdevice;
+                        if (pmgr_find_device(device->parent[j], &pdevice)) {
+                            printf("pmgr: Failed to find parent #%d for %s\n", device->parent[j],
+                                   device->name);
+                            continue;
+                        }
 
-                    if ((pdevice->flags & PMGR_FLAG_VIRTUAL))
-                        continue;
+                        if ((pdevice->flags & PMGR_FLAG_VIRTUAL))
+                            continue;
 
-                    addr = pmgr_device_get_addr(pdevice);
-                    if (!addr)
-                        continue;
+                        addr = pmgr_device_get_addr(die, pdevice);
+                        if (!addr)
+                            continue;
 
-                    reg = read32(addr);
+                        reg = read32(addr);
 
-                    if (!(reg & PMGR_AUTO_ENABLE) &&
-                        FIELD_GET(PMGR_PS_TARGET, reg) != PMGR_PS_ACTIVE) {
-                        printf("pmgr: Enabling %s, parent of active device %s\n", pdevice->name,
-                               device->name);
-                        pmgr_set_mode(addr, PMGR_PS_ACTIVE);
+                        if (!(reg & PMGR_AUTO_ENABLE) &&
+                            FIELD_GET(PMGR_PS_TARGET, reg) != PMGR_PS_ACTIVE) {
+                            printf("pmgr: Enabling %d.%s, parent of active device %s\n", die,
+                                   pdevice->name, device->name);
+                            pmgr_set_mode(addr, PMGR_PS_ACTIVE);
+                        }
                     }
                 }
             }
         }
     }
 
-    printf("pmgr: initialized, %d devices found.\n", pmgr_devices_len);
+    printf("pmgr: initialized, %d devices on %u dies found.\n", pmgr_devices_len, pmgr_dies);
 
     return 0;
 }

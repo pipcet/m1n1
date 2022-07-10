@@ -10,8 +10,7 @@
 #include "utils.h"
 #include "xnuboot.h"
 
-#define FB_DEPTH_FLAG_RETINA 0x10000
-#define FB_DEPTH_MASK        0xff
+#define FB_DEPTH_MASK 0xff
 
 fb_t fb;
 
@@ -35,8 +34,9 @@ static struct {
         u32 cols;
     } margin;
 
-    int initialized;
-} console = {.initialized = 0};
+    bool initialized;
+    bool active;
+} console;
 
 extern u8 _binary_build_font_bin_start[];
 extern u8 _binary_build_font_retina_bin_start[];
@@ -89,15 +89,26 @@ static inline rgb_t fb_get_pixel(u32 x, u32 y)
     return pixel2rgb_30(fb.ptr[x + y * fb.stride]);
 }
 
-void fb_blit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride)
+void fb_blit(u32 x, u32 y, u32 w, u32 h, void *data, u32 stride, pix_fmt_t pix_fmt)
 {
     u8 *p = data;
 
     for (u32 i = 0; i < h; i++) {
         for (u32 j = 0; j < w; j++) {
-            rgb_t color = {.r = p[(j + i * stride) * 4],
-                           .g = p[(j + i * stride) * 4 + 1],
-                           .b = p[(j + i * stride) * 4 + 2]};
+            rgb_t color;
+            switch (pix_fmt) {
+                default:
+                case PIX_FMT_XRGB:
+                    color.r = p[(j + i * stride) * 4];
+                    color.g = p[(j + i * stride) * 4 + 1];
+                    color.b = p[(j + i * stride) * 4 + 2];
+                    break;
+                case PIX_FMT_XBGR:
+                    color.r = p[(j + i * stride) * 4 + 2];
+                    color.g = p[(j + i * stride) * 4 + 1];
+                    color.b = p[(j + i * stride) * 4];
+                    break;
+            }
             fb_set_pixel(x + j, y + i, color);
         }
     }
@@ -219,7 +230,7 @@ ssize_t fb_console_write(const char *bfr, size_t len)
 {
     ssize_t wrote = 0;
 
-    if (!console.initialized)
+    if (!console.initialized || !console.active)
         return 0;
 
     while (len--) {
@@ -235,7 +246,7 @@ ssize_t fb_console_write(const char *bfr, size_t len)
 static bool fb_console_iodev_can_write(void *opaque)
 {
     UNUSED(opaque);
-    return console.initialized;
+    return console.initialized && console.active;
 }
 
 static ssize_t fb_console_iodev_write(void *opaque, const void *buf, size_t len)
@@ -265,7 +276,7 @@ static void fb_clear_console(void)
     fb_update();
 }
 
-void fb_init(void)
+void fb_init(bool clear)
 {
     fb.hwptr = (void *)cur_boot_args.video.base;
     fb.stride = cur_boot_args.video.stride / 4;
@@ -276,7 +287,7 @@ void fb_init(void)
     printf("fb init: %dx%d (%d) [s=%d] @%p-%p\n", fb.width, fb.height, fb.depth, fb.stride, fb.hwptr, fb.hwptr+fb.size);
 
     mmu_add_mapping(cur_boot_args.video.base, cur_boot_args.video.base, ALIGN_UP(fb.size, 0x4000),
-                    MAIR_IDX_FRAMEBUFFER, PERM_RW);
+                    MAIR_IDX_NORMAL_NC, PERM_RW);
 
     fb.ptr = malloc(fb.size);
     memcpy(fb.ptr, fb.hwptr, fb.size);
@@ -300,7 +311,8 @@ void fb_init(void)
     console.cursor.max_col =
         ((fb.width) / 2 - 128) / console.font.width - 2 * console.margin.cols;
 
-    console.initialized = 1;
+    console.initialized = true;
+    console.active = false;
 
     fb_clear_console();
 
@@ -308,10 +320,28 @@ void fb_init(void)
            console.cursor.max_col);
 }
 
+void fb_set_active(bool active)
+{
+    console.active = active;
+    if (active)
+        iodev_console_kick();
+}
+
 void fb_shutdown(bool ignored)
 {
     if (!console.initialized)
         return;
 
-    console.initialized = 0;
+    console.active = false;
+    console.initialized = false;
+}
+
+void fb_reinit(void)
+{
+    if (!console.initialized)
+        return;
+
+    fb_shutdown(false);
+    fb_init(true);
+    fb_display_logo();
 }

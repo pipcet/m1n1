@@ -6,8 +6,8 @@ from . import asm
 from .proxy import REGION_RX_EL1
 from .sysreg import *
 
-class GPIOLogicAnalyzer(object):
-    def __init__(self, u, node, pins, regs=[], div=1, cpu=1, on_pin_change=True):
+class GPIOLogicAnalyzer(Reloadable):
+    def __init__(self, u, node, pins, regs={}, div=1, cpu=1, on_pin_change=True):
         self.u = u
         self.p = u.proxy
         self.iface = u.iface
@@ -24,6 +24,12 @@ class GPIOLogicAnalyzer(object):
         self.on_pin_change = on_pin_change
         self.p.mmu_init_secondary(cpu)
         self.tfreq = u.mrs(CNTFRQ_EL0)
+
+    def load_regmap(self, regmap, skip=set(), regs=set()):
+        base = regmap._base
+        for name, (addr, rcls) in regmap._namemap.items():
+            if name not in skip and (not regs or name in regs):
+                self.regs[name] = base + addr, rcls
 
     def start(self, ticks, bufsize=0x10000):
         self.bufsize = bufsize
@@ -45,9 +51,12 @@ class GPIOLogicAnalyzer(object):
         2:
             mrs x5, CNTPCT_EL0
             isb
-            cmp x5, x4
-            b.lo 2b
         """
+        if self.div > 1:
+            text += f"""
+                cmp x5, x4
+                b.lo 2b
+            """
         
         for idx, pin in enumerate(self.pins.values()):
             text += f"""

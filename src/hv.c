@@ -3,6 +3,7 @@
 #include "hv.h"
 #include "assert.h"
 #include "cpu_regs.h"
+#include "display.h"
 #include "gxf.h"
 #include "memory.h"
 #include "pcie.h"
@@ -22,6 +23,7 @@ extern char _hv_vectors_start[0];
 
 u64 hv_tick_interval;
 
+int hv_pinned_cpu;
 int hv_want_cpu;
 
 static bool hv_should_exit;
@@ -49,6 +51,9 @@ static struct hv_secondary_info_t hv_secondary_info;
 void hv_init(void)
 {
     pcie_shutdown();
+    // Make sure we wake up DCP if we put it to sleep, just quiesce it to match ADT
+    if (display_is_external && display_start_dcp() >= 0)
+        display_shutdown(DCP_QUIESCED);
     // reenable hpm interrupts for the guest for unused iodevs
     usb_hpm_restore_irqs(0);
     smp_start_secondaries();
@@ -114,6 +119,7 @@ void hv_start(void *entry, u64 regs[4])
     hv_secondary_info.gxf_config = mrs(SYS_IMP_APL_GXF_CONFIG_EL1);
 
     hv_arm_tick();
+    hv_pinned_cpu = -1;
     hv_want_cpu = -1;
     hv_cpus_in_guest = 1;
 
@@ -217,16 +223,21 @@ void hv_rendezvous(void)
         ;
 }
 
-void hv_switch_cpu(int cpu)
+bool hv_switch_cpu(int cpu)
 {
     if (cpu > MAX_CPUS || cpu < 0 || !hv_started_cpus[cpu]) {
         printf("HV: CPU #%d is inactive or invalid\n", cpu);
-        return;
+        return false;
     }
-    hv_rendezvous();
     printf("HV: switching to CPU #%d\n", cpu);
     hv_want_cpu = cpu;
-    hv_rearm();
+    hv_rendezvous();
+    return true;
+}
+
+void hv_pin_cpu(int cpu)
+{
+    hv_pinned_cpu = cpu;
 }
 
 void hv_write_hcr(u64 val)
@@ -299,38 +310,20 @@ void hv_arm_tick(void)
     msr(CNTP_CTL_EL0, CNTx_CTL_ENABLE);
 }
 
-void hv_rearm(void)
+void hv_maybe_exit(void)
 {
-    msr(CNTP_TVAL_EL0, 0);
-    msr(CNTP_CTL_EL0, CNTx_CTL_ENABLE);
-}
-
-void hv_check_rendezvous(struct exc_info *ctx)
-{
-    if (hv_want_cpu == smp_id()) {
-        hv_want_cpu = -1;
-        hv_exc_proxy(ctx, START_HV, HV_USER_INTERRUPT, NULL);
-    } else if (hv_want_cpu != -1) {
-        // Unlock the HV so the target CPU can get into the proxy
-        spin_unlock(&bhl);
-        while (hv_want_cpu != -1)
-            sysop("dmb sy");
-        spin_lock(&bhl);
-        // Make sure we tick at least once more before running the guest
-        hv_rearm();
+    if (hv_should_exit) {
+        hv_exit_guest();
     }
 }
 
 void hv_tick(struct exc_info *ctx)
 {
-    if (hv_should_exit) {
-        spin_unlock(&bhl);
-        hv_exit_guest();
-    }
     hv_wdt_pet();
     iodev_handle_events(uartproxy_iodev);
     if (iodev_can_read(uartproxy_iodev)) {
-        hv_exc_proxy(ctx, START_HV, HV_USER_INTERRUPT, NULL);
+        if (hv_pinned_cpu == -1 || hv_pinned_cpu == smp_id())
+            hv_exc_proxy(ctx, START_HV, HV_USER_INTERRUPT, NULL);
     }
     hv_vuart_poll();
 }

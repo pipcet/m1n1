@@ -27,22 +27,37 @@ class SMCEpTracer(EP):
     @msg(SMC_WRITE_KEY, DIR.TX, SMCWriteKey)
     def WriteKey(self, msg):
         key = msg.KEY.to_bytes(4, byteorder="big").decode("ascii")
+        self.state.rb[msg.ID] = msg.TYPE, key, msg.SIZE
         data = self.hv.iface.readmem(self.state.sram_addr, msg.SIZE)
-        self.log(f"[{msg.ID:x}] >W: <{key}> = {data.hex()}")
+        self.log(f"[{msg.ID:x}] >W: <{key}> = {data.hex()} ({msg.SIZE})")
         return True
 
     @msg(SMC_READ_KEY, DIR.TX, SMCReadKey)
     def ReadKey(self, msg):
         key = msg.KEY.to_bytes(4, byteorder="big").decode("ascii")
         self.state.rb[msg.ID] = msg.TYPE, key, msg.SIZE
-        self.log(f"[{msg.ID:x}] >R: <{key}> = ...")
+        self.log(f"[{msg.ID:x}] >R: <{key}> = ... ({msg.SIZE})")
+        return True
+
+    @msg(SMC_RW_KEY, DIR.TX, SMCReadWriteKey)
+    def ReadKeyPayload(self, msg):
+        key = msg.KEY.to_bytes(4, byteorder="big").decode("ascii")
+        self.state.rb[msg.ID] = msg.TYPE, key, msg.RSIZE
+        data = self.hv.iface.readmem(self.state.sram_addr, msg.WSIZE)
+        self.log(f"[{msg.ID:x}] >RP: <{key}> = {data.hex()} ({msg.WSIZE, msg.RSIZE})")
         return True
 
     @msg(SMC_GET_KEY_INFO, DIR.TX, SMCGetKeyInfo)
     def GetInfo(self, msg):
         key = msg.KEY.to_bytes(4, byteorder="big").decode("ascii")
         self.state.rb[msg.ID] = msg.TYPE, key, None
-        self.log(f"[{msg.ID:x}] >Get Info: <{key}>")
+        self.log(f"[{msg.ID:x}] >KInfo: <{key}>")
+        return True
+
+    @msg(SMC_GET_KEY_BY_INDEX, DIR.TX, SMCGetKeyByIndex)
+    def GetKeyByIndex(self, msg):
+        self.state.rb[msg.ID] = msg.TYPE, msg.INDEX, None
+        self.log(f"[{msg.ID:x}] >KIdx: <{msg.INDEX}>")
         return True
 
     @msg(None, DIR.RX, Register64)
@@ -59,7 +74,7 @@ class SMCEpTracer(EP):
 
         if msg.ID in self.state.rb:
             msgtype, key, size = self.state.rb.pop(msg.ID)
-            if msgtype == SMC_READ_KEY:
+            if msgtype in (SMC_READ_KEY, SMC_RW_KEY):
                 if size <= 4:
                     data = hex(msg.VALUE)
                 else:
@@ -71,6 +86,11 @@ class SMCEpTracer(EP):
                 data = self.hv.iface.readmem(self.state.sram_addr, 6)
                 size, type, flags = struct.unpack("B4sB", data)
                 self.log(f"[{msg.ID:x}] <Info: <{key}>: size={size} type={type.decode('ascii')} flags={flags:#x}")
+                return True
+
+            elif msgtype == SMC_GET_KEY_BY_INDEX:
+                kname = msg.VALUE.to_bytes(4, byteorder="little").decode("ascii")
+                self.log(f"[{msg.ID:x}] <Key @{key}: <{kname}>")
                 return True
 
         self.log(f"[{msg.ID:x}] <OK {msg!r}")

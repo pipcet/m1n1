@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 from enum import Enum
-import bisect, copy, heapq, importlib, sys, itertools, time, os, functools, struct, re
+import threading, traceback, bisect, copy, heapq, importlib, sys, itertools, time, os, functools, struct, re, signal
 from construct import Adapter, Int64ul, Int32ul, Int16ul, Int8ul, ExprAdapter, GreedyRange, ListContainer, StopFieldError, ExplicitError, StreamError
 
 __all__ = ["FourCC"]
@@ -29,21 +29,75 @@ def _ascii(s):
             s2 += chr(c)
     return s2
 
-def chexdump(s, st=0, abbreviate=True, indent=""):
+def chexdump(s, st=0, abbreviate=True, stride=16, indent="", print_fn=print):
+    last = None
+    skip = False
+    for i in range(0,len(s),stride):
+        val = s[i:i+stride]
+        if val == last and abbreviate:
+            if not skip:
+                print_fn(indent+"%08x  *" % (i + st))
+                skip = True
+        else:
+            print_fn(indent+"%08x  %s  |%s|" % (
+                i + st,
+                "  ".join(hexdump(val[i:i+8], ' ').ljust(23)
+                          for i in range(0, stride, 8)),
+                _ascii(val).ljust(stride)))
+            last = val
+            skip = False
+
+_extascii_table_low = [
+    "▪", "☺", "☻", "♥", "♦", "♣", "♠", "•",
+    "◘", "○", "◙", "♂", "♀", "♪", "♫", "☼",
+    "►", "◄", "↕", "‼", "¶", "§", "▬", "↨",
+    "↑", "↓", "→", "←", "∟", "↔", "▲", "▼"]
+
+_extascii_table_high = [
+    "⌂",
+    "█", "⡀", "⢀", "⣀", "⠠", "⡠", "⢠", "⣠",
+    "⠄", "⡄", "⢄", "⣄", "⠤", "⡤", "⢤", "⣤",
+    "⠁", "⡁", "⢁", "⣁", "⠡", "⡡", "⢡", "⣡",
+    "⠅", "⡅", "⢅", "⣅", "⠥", "⡥", "⢥", "⣥",
+    "⠃", "⡃", "⢃", "⣃", "⠣", "⡣", "⢣", "⣣",
+    "⠇", "⡇", "⢇", "⣇", "⠧", "⡧", "⢧", "⣧",
+    "⠉", "⡉", "⢉", "⣉", "⠩", "⡩", "⢩", "⣩",
+    "⠍", "⡍", "⢍", "⣍", "⠭", "⡭", "⢭", "⣭",
+    "⠊", "⡊", "⢊", "⣊", "⠪", "⡪", "⢪", "⣪",
+    "⠎", "⡎", "⢎", "⣎", "⠮", "⡮", "⢮", "⣮",
+    "⠑", "⡑", "⢑", "⣑", "⠱", "⡱", "⢱", "⣱",
+    "⠕", "⡕", "⢕", "⣕", "⠵", "⡵", "⢵", "⣵",
+    "⠚", "⡚", "⢚", "⣚", "⠺", "⡺", "⢺", "⣺",
+    "⠞", "⡞", "⢞", "⣞", "⠾", "⡾", "⢾", "⣾",
+    "⠛", "⡛", "⢛", "⣛", "⠻", "⡻", "⢻", "⣻",
+    "⠟", "⡟", "⢟", "⣟", "⠿", "⡿", "⢿", "⣿"]
+
+def _extascii(s):
+    s2 = ""
+    for c in s:
+        if c < 0x20:
+            s2 += _extascii_table_low[c]
+        elif c > 0x7e:
+            s2 += _extascii_table_high[c-0x7f]
+        else:
+            s2 += chr(c)
+    return s2
+
+def ehexdump(s, st=0, abbreviate=True, indent="", print_fn=print):
     last = None
     skip = False
     for i in range(0,len(s),16):
         val = s[i:i+16]
         if val == last and abbreviate:
             if not skip:
-                print(indent+"%08x  *" % (i + st))
+                print_fn(indent+"%08x  *" % (i + st))
                 skip = True
         else:
-            print(indent+"%08x  %s  %s  |%s|" % (
+            print_fn(indent+"%08x  %s  %s  |%s|" % (
                   i + st,
                   hexdump(val[:8], ' ').ljust(23),
                   hexdump(val[8:], ' ').ljust(23),
-                  _ascii(val).ljust(16)))
+                  _extascii(val).ljust(16)))
             last = val
             skip = False
 
@@ -66,6 +120,32 @@ def chexdump32(s, st=0, abbreviate=True):
 def unhex(s):
     s = re.sub(r"/\*.*?\*/", "", s)
     return bytes.fromhex(s.replace(" ", "").replace("\n", ""))
+
+def dumpstacks(signal, frame):
+    id2name = dict([(th.ident, th.name) for th in threading.enumerate()])
+    code = []
+    for threadId, stack in sys._current_frames().items():
+        code.append("\n# Thread: %s(%d)" % (id2name.get(threadId,""), threadId))
+        for filename, lineno, name, line in traceback.extract_stack(stack):
+            code.append('File: "%s", line %d, in %s' % (filename, lineno, name))
+            if line:
+                code.append("  %s" % (line.strip()))
+    print("\n".join(code))
+    sys.exit(1)
+
+def set_sigquit_stackdump_handler():
+    signal.signal(signal.SIGQUIT, dumpstacks)
+
+def parse_indexlist(s):
+    items = set()
+    for i in s.split(","):
+        if "-" in i:
+            a, b = map(int, i.split("-", 1))
+            for i in range(a, b + 1):
+                items.add(i)
+        else:
+            items.add(int(i))
+    return items
 
 FourCC = ExprAdapter(Int32ul,
                      lambda d, ctx: d.to_bytes(4, "big").decode("latin-1"),
@@ -97,7 +177,7 @@ class ReloadableMeta(type):
 
 class Reloadable(metaclass=ReloadableMeta):
     @classmethod
-    def _reloadcls(cls):
+    def _reloadcls(cls, force=False):
         mods = []
         for c in cls.mro():
             mod = sys.modules[c.__module__]
@@ -113,7 +193,7 @@ class Reloadable(metaclass=ReloadableMeta):
             if not source:
                 continue
             newest = max(newest, os.stat(source).st_mtime, pcls._load_time)
-            if (reloaded or pcls._load_time < newest) and mod.__name__ not in reloaded:
+            if (force or reloaded or pcls._load_time < newest) and mod.__name__ not in reloaded:
                 print(f"Reload: {mod.__name__}")
                 mod = importlib.reload(mod)
                 reloaded.add(mod.__name__)
@@ -153,6 +233,7 @@ class RegisterMeta(ReloadableMeta):
         return m
 
 class Register(Reloadable, metaclass=RegisterMeta):
+    _Constant = Constant
     def __init__(self, v=None, **kwargs):
         if v is not None:
             self._value = v
@@ -162,7 +243,7 @@ class Register(Reloadable, metaclass=RegisterMeta):
             self._value = 0
             for k in self._fields_list:
                 field = getattr(self.__class__, k)
-                if isinstance(field, tuple) and len(field) >= 3 and isinstance(field[2], Constant):
+                if isinstance(field, tuple) and len(field) >= 3 and isinstance(field[2], self._Constant):
                     setattr(self, k, field[2].value)
 
         for k,v in kwargs.items():
@@ -710,7 +791,7 @@ class RegArrayAccessor(Reloadable):
         else:
             return [RegAccessor(self.cls, self.rd, self.wr, self.addr + i) for i in off]
 
-class RegMap(Reloadable, metaclass=RegMapMeta):
+class BaseRegMap(Reloadable):
     def __init__(self, backend, base):
         self._base = base
         self._backend = backend
@@ -725,8 +806,7 @@ class RegMap(Reloadable, metaclass=RegMapMeta):
             else:
                 self._accessor[name] = RegAccessor(rcls, rd, wr, base + addr)
 
-    @classmethod
-    def lookup_offset(cls, offset):
+    def _lookup_offset(cls, offset):
         reg = cls._addrmap.get(offset, None)
         if reg is not None:
             name, rcls = reg
@@ -737,6 +817,7 @@ class RegMap(Reloadable, metaclass=RegMapMeta):
                 if offset in rng:
                     return name, rng.index(offset), rcls
         return None, None, None
+    lookup_offset = classmethod(_lookup_offset)
 
     def lookup_addr(self, addr):
         return self.lookup_offset(addr - self._base)
@@ -748,9 +829,9 @@ class RegMap(Reloadable, metaclass=RegMapMeta):
         else:
             return name
 
-    @classmethod
-    def lookup_name(cls, name):
+    def _lookup_name(cls, name):
         return cls._namemap.get(name, None)
+    lookup_name = classmethod(_lookup_name)
 
     def _scalar_regs(self):
         for addr, (name, rtype) in self._addrmap.items():
@@ -775,8 +856,66 @@ class RegMap(Reloadable, metaclass=RegMapMeta):
         for addr, name, acc, rtype in heapq.merge(sorted(self._scalar_regs()), self._array_regs()):
             print(f"{self._base:#x}+{addr:06x} {name} = {acc.reg}")
 
+class RegMap(BaseRegMap, metaclass=RegMapMeta):
+    pass
+
 def irange(start, count, step=1):
     return range(start, start + count * step, step)
+
+# Table generated by:
+#
+# tbl = [0] * 256
+# crc = 1
+# for i in [2**x for x in irange(7, 0, -1)]:
+#    if crc & 1:
+#         crc = (crc >> 1) ^ 0xA001
+#     else:
+#         crc = crc >> 1
+#     for j in range(0, 255, 2*i):
+#         tbl[i + j] = crc ^ tbl[j]
+#
+# for i in range(0, 255, 8):
+#     print(f"{tbl[i]:#06x}, {tbl[i+1]:#06x}, {tbl[i+2]:#06x}, {tbl[i+3]:#06x}, {tbl[i+4]:#06x}, {tbl[i+5]:#06x}, {tbl[i+6]:#06x}, {tbl[i+7]:#06x}, ")
+
+_crc16_table = [
+    0x0000, 0xc0c1, 0xc181, 0x0140, 0xc301, 0x03c0, 0x0280, 0xc241,
+    0xc601, 0x06c0, 0x0780, 0xc741, 0x0500, 0xc5c1, 0xc481, 0x0440,
+    0xcc01, 0x0cc0, 0x0d80, 0xcd41, 0x0f00, 0xcfc1, 0xce81, 0x0e40,
+    0x0a00, 0xcac1, 0xcb81, 0x0b40, 0xc901, 0x09c0, 0x0880, 0xc841,
+    0xd801, 0x18c0, 0x1980, 0xd941, 0x1b00, 0xdbc1, 0xda81, 0x1a40,
+    0x1e00, 0xdec1, 0xdf81, 0x1f40, 0xdd01, 0x1dc0, 0x1c80, 0xdc41,
+    0x1400, 0xd4c1, 0xd581, 0x1540, 0xd701, 0x17c0, 0x1680, 0xd641,
+    0xd201, 0x12c0, 0x1380, 0xd341, 0x1100, 0xd1c1, 0xd081, 0x1040,
+    0xf001, 0x30c0, 0x3180, 0xf141, 0x3300, 0xf3c1, 0xf281, 0x3240,
+    0x3600, 0xf6c1, 0xf781, 0x3740, 0xf501, 0x35c0, 0x3480, 0xf441,
+    0x3c00, 0xfcc1, 0xfd81, 0x3d40, 0xff01, 0x3fc0, 0x3e80, 0xfe41,
+    0xfa01, 0x3ac0, 0x3b80, 0xfb41, 0x3900, 0xf9c1, 0xf881, 0x3840,
+    0x2800, 0xe8c1, 0xe981, 0x2940, 0xeb01, 0x2bc0, 0x2a80, 0xea41,
+    0xee01, 0x2ec0, 0x2f80, 0xef41, 0x2d00, 0xedc1, 0xec81, 0x2c40,
+    0xe401, 0x24c0, 0x2580, 0xe541, 0x2700, 0xe7c1, 0xe681, 0x2640,
+    0x2200, 0xe2c1, 0xe381, 0x2340, 0xe101, 0x21c0, 0x2080, 0xe041,
+    0xa001, 0x60c0, 0x6180, 0xa141, 0x6300, 0xa3c1, 0xa281, 0x6240,
+    0x6600, 0xa6c1, 0xa781, 0x6740, 0xa501, 0x65c0, 0x6480, 0xa441,
+    0x6c00, 0xacc1, 0xad81, 0x6d40, 0xaf01, 0x6fc0, 0x6e80, 0xae41,
+    0xaa01, 0x6ac0, 0x6b80, 0xab41, 0x6900, 0xa9c1, 0xa881, 0x6840,
+    0x7800, 0xb8c1, 0xb981, 0x7940, 0xbb01, 0x7bc0, 0x7a80, 0xba41,
+    0xbe01, 0x7ec0, 0x7f80, 0xbf41, 0x7d00, 0xbdc1, 0xbc81, 0x7c40,
+    0xb401, 0x74c0, 0x7580, 0xb541, 0x7700, 0xb7c1, 0xb681, 0x7640,
+    0x7200, 0xb2c1, 0xb381, 0x7340, 0xb101, 0x71c0, 0x7080, 0xb041,
+    0x5000, 0x90c1, 0x9181, 0x5140, 0x9301, 0x53c0, 0x5280, 0x9241,
+    0x9601, 0x56c0, 0x5780, 0x9741, 0x5500, 0x95c1, 0x9481, 0x5440,
+    0x9c01, 0x5cc0, 0x5d80, 0x9d41, 0x5f00, 0x9fc1, 0x9e81, 0x5e40,
+    0x5a00, 0x9ac1, 0x9b81, 0x5b40, 0x9901, 0x59c0, 0x5880, 0x9841,
+    0x8801, 0x48c0, 0x4980, 0x8941, 0x4b00, 0x8bc1, 0x8a81, 0x4a40,
+    0x4e00, 0x8ec1, 0x8f81, 0x4f40, 0x8d01, 0x4dc0, 0x4c80, 0x8c41,
+    0x4400, 0x84c1, 0x8581, 0x4540, 0x8701, 0x47c0, 0x4680, 0x8641,
+    0x8201, 0x42c0, 0x4380, 0x8341, 0x4100, 0x81c1, 0x8081, 0x4040
+]
+
+def crc16USB(crc, data):
+    for x in data:
+        crc = (crc >> 8) ^ _crc16_table[(crc ^ x) & 0xff]
+    return crc
 
 __all__.extend(k for k, v in globals().items()
                if (callable(v) or isinstance(v, type)) and v.__module__ == __name__)

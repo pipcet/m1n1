@@ -1,19 +1,26 @@
 /* SPDX-License-Identifier: MIT */
 
+#include "../build/build_cfg.h"
+#include "../build/build_tag.h"
+
 #include "../config.h"
 
 #include "adt.h"
 #include "aic.h"
+#include "clk.h"
 #include "cpufreq.h"
+#include "display.h"
 #include "exception.h"
 #include "fb.h"
 #include "gxf.h"
 #include "heapblock.h"
 #include "mcc.h"
 #include "memory.h"
+#include "nvme.h"
 #include "payload.h"
 #include "pcie.h"
 #include "pmgr.h"
+#include "sep.h"
 #include "smp.h"
 #include "string.h"
 #include "uart.h"
@@ -22,8 +29,6 @@
 #include "utils.h"
 #include "wdt.h"
 #include "xnuboot.h"
-
-#include "../build/build_tag.h"
 
 struct vector_args next_stage;
 
@@ -56,6 +61,44 @@ void get_device_info(void)
 
 void run_actions(void)
 {
+    bool usb_up = false;
+
+#ifndef BRINGUP
+#ifdef EARLY_PROXY_TIMEOUT
+    if (!cur_boot_args.video.display) {
+        printf("Bringing up USB for early debug...\n");
+
+        usb_init();
+        usb_iodev_init();
+
+        usb_up = true;
+
+        printf("Waiting for proxy connection... ");
+        for (int i = 0; i < EARLY_PROXY_TIMEOUT * 100; i++) {
+            for (int j = 0; j < USB_IODEV_COUNT; j++) {
+                iodev_id_t iodev = IODEV_USB0 + j;
+
+                if (!(iodev_get_usage(iodev) & USAGE_UARTPROXY))
+                    continue;
+
+                usb_iodev_vuart_setup(iodev);
+                iodev_handle_events(iodev);
+                if (iodev_can_write(iodev) || iodev_can_write(IODEV_USB_VUART)) {
+                    printf(" Connected!\n");
+                    uartproxy_run(NULL);
+                    return;
+                }
+            }
+
+            mdelay(10);
+            if (i % 100 == 99)
+                printf(".");
+        }
+        printf(" Timed out\n");
+    }
+#endif
+#endif
+
     printf("Checking for payloads...\n");
 
     if (payload_run() == 0) {
@@ -63,10 +106,16 @@ void run_actions(void)
         return;
     }
 
+    fb_set_active(true);
+
     printf("No valid payload found\n");
 
-    usb_init();
-    usb_iodev_init();
+#ifndef BRINGUP
+    if (!usb_up) {
+        usb_init();
+        usb_iodev_init();
+    }
+#endif
 
     printf("Running proxy...\n");
 
@@ -75,8 +124,8 @@ void run_actions(void)
 
 void m1n1_main(void)
 {
-    printf("\n\nm1n1 v%s\n", m1n1_version);
-    printf("Copyright (C) 2021 The Asahi Linux Contributors\n");
+    printf("\n\nm1n1 %s\n", m1n1_version);
+    printf("Copyright The Asahi Linux Contributors\n");
     printf("Licensed under the MIT license\n\n");
 
     printf("Running in EL%lu\n\n", mrs(CurrentEL) >> 2);
@@ -84,19 +133,35 @@ void m1n1_main(void)
     get_device_info();
 
     heapblock_init();
+
+#ifndef BRINGUP
     gxf_init();
     mcc_init();
     mmu_init();
+    aic_init();
+#endif
+    wdt_disable();
+#ifndef BRINGUP
+    pmgr_init();
 
 #ifdef USE_FB
-    fb_init();
+    display_init();
+    // Kick DCP to sleep, so dodgy monitors which cause reconnect cycles don't cause us to lose the
+    // framebuffer.
+    display_shutdown(DCP_SLEEP_IF_EXTERNAL);
+    fb_init(false);
     fb_display_logo();
+#ifdef FB_SILENT_MODE
+    fb_set_active(!cur_boot_args.video.display);
+#else
+    fb_set_active(true);
+#endif
 #endif
 
-    aic_init();
-    wdt_disable();
-    pmgr_init();
+    clk_init();
     cpufreq_init();
+    sep_init();
+#endif
 
     printf("Initialization complete.\n");
 
@@ -112,8 +177,8 @@ void m1n1_main(void)
 
     printf("Vectoring to next stage...\n");
 
-    next_stage.entry(next_stage.args[0], next_stage.args[1], next_stage.args[2],
-                     next_stage.args[3]);
+    next_stage.entry(next_stage.args[0], next_stage.args[1], next_stage.args[2], next_stage.args[3],
+                     next_stage.args[4]);
 
     panic("Next stage returned!\n");
 }

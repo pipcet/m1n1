@@ -19,15 +19,17 @@ extern spinlock_t bhl;
      ((op2) << ESR_ISS_MSR_OP2_SHIFT))
 #define SYSREG_ISS(...) _SYSREG_ISS(__VA_ARGS__)
 
-#define D_PERCPU(t, x) t x[MAX_CPUS]
-#define PERCPU(x)      x[mrs(TPIDR_EL2)]
+#define PERCPU(x) pcpu[mrs(TPIDR_EL2)].x
 
-D_PERCPU(static bool, ipi_queued);
-D_PERCPU(static bool, ipi_pending);
-D_PERCPU(static bool, pmc_pending);
-D_PERCPU(static u64, pmc_irq_mode);
+struct hv_pcpu_data {
+    u32 ipi_queued;
+    u32 ipi_pending;
+    u32 pmc_pending;
+    u64 pmc_irq_mode;
+    u64 exc_entry_pmcr0_cnt;
+} ALIGNED(64);
 
-D_PERCPU(static u64, exc_entry_pmcr0_cnt);
+struct hv_pcpu_data pcpu[MAX_CPUS];
 
 void hv_exit_guest(void) __attribute__((noreturn));
 
@@ -35,19 +37,26 @@ static u64 stolen_time = 0;
 static u64 exc_entry_time;
 
 extern u32 hv_cpus_in_guest;
+extern int hv_pinned_cpu;
+extern int hv_want_cpu;
 
-void hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type, void *extra)
+static bool time_stealing = true;
+
+static void _hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type,
+                          void *extra)
 {
     int from_el = FIELD_GET(SPSR_M, ctx->spsr) >> 2;
 
     hv_wdt_breadcrumb('P');
 
-#ifdef TIME_ACCOUNTING
-    /* Wait until all CPUs have entered the HV (max 1ms), to ensure they exit with an
-     * updated timer offset. */
-    hv_rendezvous();
+    /*
+     * Get all the CPUs into the HV before running the proxy, to make sure they all exit to
+     * the guest with a consistent time offset.
+     */
+    if (time_stealing)
+        hv_rendezvous();
+
     u64 entry_time = mrs(CNTPCT_EL0);
-#endif
 
     ctx->elr_phys = hv_translate(ctx->elr, false, false);
     ctx->far_phys = hv_translate(ctx->far, false, false);
@@ -67,19 +76,72 @@ void hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type
     switch (ret) {
         case EXC_RET_HANDLED:
             hv_wdt_breadcrumb('p');
-#ifdef TIME_ACCOUNTING
-            u64 lost = mrs(CNTPCT_EL0) - entry_time;
-            stolen_time += lost;
-#endif
-            return;
+            if (time_stealing) {
+                u64 lost = mrs(CNTPCT_EL0) - entry_time;
+                stolen_time += lost;
+            }
+            break;
         case EXC_EXIT_GUEST:
+            hv_rendezvous();
             spin_unlock(&bhl);
-            hv_exit_guest();
+            hv_exit_guest(); // does not return
         default:
             printf("Guest exception not handled, rebooting.\n");
             print_regs(ctx->regs, 0);
-            flush_and_reboot();
+            flush_and_reboot(); // does not return
     }
+}
+
+static void hv_maybe_switch_cpu(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type,
+                                void *extra)
+{
+    while (hv_want_cpu != -1) {
+        if (hv_want_cpu == smp_id()) {
+            hv_want_cpu = -1;
+            _hv_exc_proxy(ctx, reason, type, extra);
+        } else {
+            // Unlock the HV so the target CPU can get into the proxy
+            spin_unlock(&bhl);
+            while (hv_want_cpu != -1)
+                sysop("dmb sy");
+            spin_lock(&bhl);
+        }
+    }
+}
+
+void hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type, void *extra)
+{
+    /*
+     * Wait while another CPU is pinned or being switched to.
+     * If a CPU switch is requested, handle it before actually handling the
+     * exception. We still tell the host the real reason code, though.
+     */
+    while ((hv_pinned_cpu != -1 && hv_pinned_cpu != smp_id()) || hv_want_cpu != -1) {
+        if (hv_want_cpu == smp_id()) {
+            hv_want_cpu = -1;
+            _hv_exc_proxy(ctx, reason, type, extra);
+        } else {
+            // Unlock the HV so the target CPU can get into the proxy
+            spin_unlock(&bhl);
+            while ((hv_pinned_cpu != -1 && hv_pinned_cpu != smp_id()) || hv_want_cpu != -1)
+                sysop("dmb sy");
+            spin_lock(&bhl);
+        }
+    }
+
+    /* Handle the actual exception */
+    _hv_exc_proxy(ctx, reason, type, extra);
+
+    /*
+     * If as part of handling this exception we want to switch CPUs, handle it without returning
+     * to the guest.
+     */
+    hv_maybe_switch_cpu(ctx, reason, type, extra);
+}
+
+void hv_set_time_stealing(bool enabled)
+{
+    time_stealing = enabled;
 }
 
 static void hv_update_fiq(void)
@@ -216,7 +278,7 @@ static bool hv_handle_msr(struct exc_info *ctx, u64 iss)
             msr(SYS_IMP_APL_IPI_RR_LOCAL_EL1, regs[rt]);
             for (int i = 0; i < MAX_CPUS; i++)
                 if (mpidr == smp_get_mpidr(i))
-                    ipi_queued[i] = true;
+                    pcpu[i].ipi_queued = true;
             return true;
         }
         case SYSREG_ISS(SYS_IMP_APL_IPI_RR_GLOBAL_EL1):
@@ -225,7 +287,7 @@ static bool hv_handle_msr(struct exc_info *ctx, u64 iss)
             msr(SYS_IMP_APL_IPI_RR_GLOBAL_EL1, regs[rt]);
             for (int i = 0; i < MAX_CPUS; i++) {
                 if (mpidr == (smp_get_mpidr(i) & 0xffff))
-                    ipi_queued[i] = true;
+                    pcpu[i].ipi_queued = true;
             }
             return true;
         case SYSREG_ISS(SYS_IMP_APL_IPI_SR_EL1):
@@ -366,11 +428,34 @@ void hv_exc_irq(struct exc_info *ctx)
 
 void hv_exc_fiq(struct exc_info *ctx)
 {
-    hv_wdt_breadcrumb('F');
-    hv_exc_entry(ctx);
+    bool tick = false;
+
+    hv_maybe_exit();
+
     if (mrs(CNTP_CTL_EL0) == (CNTx_CTL_ISTATUS | CNTx_CTL_ENABLE)) {
         msr(CNTP_CTL_EL0, CNTx_CTL_ISTATUS | CNTx_CTL_IMASK | CNTx_CTL_ENABLE);
-        hv_tick(ctx);
+        tick = true;
+    }
+
+    int interruptible_cpu = hv_pinned_cpu;
+    if (interruptible_cpu == -1)
+        interruptible_cpu = 0;
+
+    if (smp_id() != interruptible_cpu && !(mrs(ISR_EL1) & 0x40) && hv_want_cpu == -1) {
+        // Non-interruptible CPU and it was just a timer tick (or spurious), so just update FIQs
+        hv_update_fiq();
+        hv_arm_tick();
+        return;
+    }
+
+    // Slow (single threaded) path
+    hv_wdt_breadcrumb('F');
+    hv_exc_entry(ctx);
+
+    // Only poll for HV events in the interruptible CPU
+    if (tick) {
+        if (smp_id() == interruptible_cpu)
+            hv_tick(ctx);
         hv_arm_tick();
     }
 
@@ -403,7 +488,8 @@ void hv_exc_fiq(struct exc_info *ctx)
         msr(SYS_IMP_APL_IPI_SR_EL1, IPI_SR_PENDING);
         sysop("isb");
     }
-    hv_check_rendezvous(ctx);
+
+    hv_maybe_switch_cpu(ctx, START_HV, HV_CPU_SWITCH, NULL);
 
     // Handles guest timers
     hv_exc_exit(ctx);

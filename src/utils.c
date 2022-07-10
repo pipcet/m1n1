@@ -8,6 +8,7 @@
 #include "smp.h"
 #include "types.h"
 #include "vsprintf.h"
+#include "xnuboot.h"
 
 static char ascii(char s)
 {
@@ -96,6 +97,31 @@ void udelay(u32 d)
     sysop("isb");
 }
 
+u64 ticks_to_msecs(u64 ticks)
+{
+    // NOTE: only accurate if freq is even kHz
+    return ticks / (mrs(CNTFRQ_EL0) / 1000);
+}
+
+u64 ticks_to_usecs(u64 ticks)
+{
+    // NOTE: only accurate if freq is even MHz
+    return ticks / (mrs(CNTFRQ_EL0) / 1000000);
+}
+
+u64 timeout_calculate(u32 usec)
+{
+    u64 delay = ((u64)usec) * mrs(CNTFRQ_EL0) / 1000000;
+    return mrs(CNTPCT_EL0) + delay;
+}
+
+bool timeout_expired(u64 timeout)
+{
+    bool expired = mrs(CNTPCT_EL0) > timeout;
+    sysop("isb");
+    return expired;
+}
+
 void flush_and_reboot(void)
 {
     iodev_console_flush();
@@ -110,17 +136,28 @@ void spin_init(spinlock_t *lock)
 
 void spin_lock(spinlock_t *lock)
 {
+    s64 tmp;
     s64 me = smp_id();
     if (__atomic_load_n(&lock->lock, __ATOMIC_ACQUIRE) == me) {
         lock->count++;
         return;
     }
 
-    s64 free = -1;
-
-    while (!__atomic_compare_exchange_n(&lock->lock, &free, me, false, __ATOMIC_ACQUIRE,
-                                        __ATOMIC_RELAXED))
-        free = -1;
+    __asm__ volatile("1:\n"
+                     "mov\t%0, -1\n"
+                     "2:\n"
+                     "\tcasa\t%0, %2, %1\n"
+                     "\tcmn\t%0, 1\n"
+                     "\tbeq\t3f\n"
+                     "\tldxr\t%0, %1\n"
+                     "\tcmn\t%0, 1\n"
+                     "\tbeq\t2b\n"
+                     "\twfe\n"
+                     "\tb\t1b\n"
+                     "3:"
+                     : "=&r"(tmp), "+m"(lock->lock)
+                     : "r"(me)
+                     : "cc", "memory");
 
     assert(__atomic_load_n(&lock->lock, __ATOMIC_RELAXED) == me);
     lock->count++;
@@ -133,4 +170,13 @@ void spin_unlock(spinlock_t *lock)
     assert(lock->count > 0);
     if (!--lock->count)
         __atomic_store_n(&lock->lock, -1L, __ATOMIC_RELEASE);
+}
+
+bool is_heap(void *addr)
+{
+    u64 p = (u64)addr;
+    u64 top_of_kernel_data = (u64)cur_boot_args.top_of_kernel_data;
+    u64 top_of_ram = cur_boot_args.mem_size + cur_boot_args.phys_base;
+
+    return p > top_of_kernel_data && p < top_of_ram;
 }

@@ -66,6 +66,20 @@ class EXC_RET(IntEnum):
     EXIT_GUEST = 3
     STEP = 4
 
+class DCP_SHUTDOWN_MODE(IntEnum):
+    QUIESCED = 0
+    SLEEP_IF_EXTERNAL = 1
+    SLEEP = 2
+
+class PIX_FMT(IntEnum):
+    XRGB = 0
+    XBGR = 1
+
+class DART(IntEnum):
+    T8020 = 0
+    T8110 = 1
+    T6000 = 2
+
 ExcInfo = Struct(
     "regs" / Array(32, Int64ul),
     "spsr" / RegAdapter(SPSR),
@@ -327,6 +341,9 @@ class UartInterface(Reloadable):
                 raise UartTimeout("Reconnection timed out")
             print(" Connected")
 
+    def wait_and_handle_boot(self):
+        self.handle_boot(self.wait_boot())
+
     def nop(self):
         features = Feature.get_all()
 
@@ -530,6 +547,7 @@ class M1N1Proxy(Reloadable):
     P_SMP_CALL = 0x501
     P_SMP_CALL_SYNC = 0x502
     P_SMP_WAIT = 0x503
+    P_SMP_SET_WFE_MODE = 0x504
 
     P_HEAPBLOCK_ALLOC = 0x600
     P_MALLOC = 0x601
@@ -537,7 +555,7 @@ class M1N1Proxy(Reloadable):
     P_FREE = 0x602
 
     P_KBOOT_BOOT = 0x700
-    P_KBOOT_SET_BOOTARGS = 0x701
+    P_KBOOT_SET_CHOSEN = 0x701
     P_KBOOT_SET_INITRD = 0x702
     P_KBOOT_PREPARE_DT = 0x703
 
@@ -545,6 +563,7 @@ class M1N1Proxy(Reloadable):
     P_PMGR_CLOCK_DISABLE = 0x801
     P_PMGR_ADT_CLOCKS_ENABLE = 0x802
     P_PMGR_ADT_CLOCKS_DISABLE = 0x803
+    P_PMGR_RESET = 0x804
 
     P_IODEV_SET_USAGE = 0x900
     P_IODEV_CAN_READ = 0x901
@@ -572,6 +591,8 @@ class M1N1Proxy(Reloadable):
     P_HV_WDT_START = 0xc07
     P_HV_START_SECONDARY = 0xc08
     P_HV_SWITCH_CPU = 0xc09
+    P_HV_SET_TIME_STEALING = 0xc0a
+    P_HV_PIN_CPU = 0xc0b
 
     P_FB_INIT = 0xd00
     P_FB_SHUTDOWN = 0xd01
@@ -585,6 +606,17 @@ class M1N1Proxy(Reloadable):
 
     P_PCIE_INIT = 0xe00
     P_PCIE_SHUTDOWN = 0xe01
+
+    P_NVME_INIT = 0xf00
+    P_NVME_SHUTDOWN = 0xf01
+    P_NVME_READ = 0xf02
+    P_NVME_FLUSH = 0xf03
+
+    P_MCC_GET_CARVEOUTS = 0x1000
+
+    P_DISPLAY_INIT = 0x1100
+    P_DISPLAY_CONFIGURE = 0x1101
+    P_DISPLAY_SHUTDOWN = 0x1102
 
     def __init__(self, iface, debug=False):
         self.debug = debug
@@ -898,6 +930,8 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_SMP_CALL_SYNC, cpu, addr, *args)
     def smp_wait(self, cpu):
         return self.request(self.P_SMP_WAIT, cpu)
+    def smp_set_wfe_mode(self, mode):
+        return self.request(self.P_SMP_SET_WFE_MODE, mode)
 
     def heapblock_alloc(self, size):
         return self.request(self.P_HEAPBLOCK_ALLOC, size)
@@ -910,8 +944,8 @@ class M1N1Proxy(Reloadable):
 
     def kboot_boot(self, kernel):
         self.request(self.P_KBOOT_BOOT, kernel)
-    def kboot_set_bootargs(self, bootargs):
-        self.request(self.P_KBOOT_SET_BOOTARGS, bootargs)
+    def kboot_set_chosen(self, name, value):
+        self.request(self.P_KBOOT_SET_CHOSEN, name, value)
     def kboot_set_initrd(self, base, size):
         self.request(self.P_KBOOT_SET_INITRD, base, size)
     def kboot_prepare_dt(self, dt_addr):
@@ -925,6 +959,8 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_PMGR_ADT_CLOCKS_ENABLE, path)
     def pmgr_adt_clocks_disable(self, path):
         return self.request(self.P_PMGR_ADT_CLOCKS_DISABLE, path)
+    def pmgr_reset(self, die, name):
+        return self.request(self.P_PMGR_RESET, die, name)
 
     def iodev_set_usage(self, iodev, usage):
         return self.request(self.P_IODEV_SET_USAGE, iodev, usage)
@@ -948,8 +984,8 @@ class M1N1Proxy(Reloadable):
     def tunables_apply_local_addr(self, path, prop, base):
         return self.request(self.P_TUNABLES_APPLY_LOCAL, path, prop, base)
 
-    def dart_init(self, base, sid):
-        return self.request(self.P_DART_INIT, base, sid)
+    def dart_init(self, base, sid, dart_type=DART.T8020):
+        return self.request(self.P_DART_INIT, base, sid, dart_type)
     def dart_shutdown(self, dart):
         return self.request(self.P_DART_SHUTDOWN, dart)
     def dart_map(self, dart, iova, bfr, len):
@@ -979,16 +1015,20 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_HV_START_SECONDARY, cpu, entry, *args)
     def hv_switch_cpu(self, cpu):
         return self.request(self.P_HV_SWITCH_CPU, cpu)
+    def hv_set_time_stealing(self, enabled):
+        return self.request(self.P_HV_SET_TIME_STEALING, int(bool(enabled)))
+    def hv_pin_cpu(self, cpu):
+        return self.request(self.P_HV_PIN_CPU, cpu)
 
     def fb_init(self):
         return self.request(self.P_FB_INIT)
     def fb_shutdown(self, restore_logo=True):
         return self.request(self.P_FB_SHUTDOWN, restore_logo)
-    def fb_blit(self, x, y, w, h, ptr, stride):
-        return self.request(self.P_FB_BLIT, x, y, w, h, ptr, stride)
+    def fb_blit(self, x, y, w, h, ptr, stride, pix_fmt=PIX_FMT.XRGB):
+        return self.request(self.P_FB_BLIT, x, y, w, h, ptr, stride | pix_fmt << 32)
     def fb_unblit(self, x, y, w, h, ptr, stride):
         return self.request(self.P_FB_UNBLIT, x, y, w, h, ptr, stride)
-    def fb_fill(self, color):
+    def fb_fill(self, x, y, w, h, color):
         return self.request(self.P_FB_FILL, x, y, w, h, color)
     def fb_clear(self, color):
         return self.request(self.P_FB_CLEAR, color)
@@ -1003,6 +1043,25 @@ class M1N1Proxy(Reloadable):
         return self.request(self.P_PCIE_INIT)
     def pcie_shutdown(self):
         return self.request(self.P_PCIE_SHUTDOWN)
+
+    def nvme_init(self):
+        return self.request(self.P_NVME_INIT)
+    def nvme_shutdown(self):
+        return self.request(self.P_NVME_SHUTDOWN)
+    def nvme_read(self, nsid, lba, bfr):
+        return self.request(self.P_NVME_READ, nsid, lba, bfr)
+    def nvme_flush(self, nsid):
+        return self.request(self.P_NVME_FLUSH, nsid)
+
+    def mcc_get_carveouts(self):
+        return self.request(self.P_MCC_GET_CARVEOUTS)
+
+    def display_init(self):
+        return self.request(self.P_DISPLAY_INIT)
+    def display_configure(self, cfg):
+        return self.request(self.P_DISPLAY_CONFIGURE, cfg)
+    def display_shutdown(self, mode):
+        return self.request(self.P_DISPLAY_SHUTDOWN, mode)
 
 __all__.extend(k for k, v in globals().items()
                if (callable(v) or isinstance(v, type)) and v.__module__ == __name__)

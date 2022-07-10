@@ -28,6 +28,8 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+#define USEC_PER_SEC 1000000L
+
 static inline u64 read64(u64 addr)
 {
     u64 data;
@@ -250,6 +252,12 @@ static inline u8 writeread8(u64 addr, u8 data)
     return read8(addr);
 }
 
+static inline void write64_lo_hi(u64 addr, u64 val)
+{
+    write32(addr, val);
+    write32(addr + 4, val >> 32);
+}
+
 #define _concat(a, _1, b, ...) a##b
 
 #define _sr_tkn_S(_0, _1, op0, op1, CRn, CRm, op2) s##op0##_##op1##_c##CRn##_c##CRm##_##op2
@@ -364,8 +372,19 @@ void regdump(u64 addr, size_t len);
 int snprintf(char *str, size_t size, const char *fmt, ...);
 int debug_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void udelay(u32 d);
+
+static inline u64 get_ticks(void)
+{
+    return mrs(CNTPCT_EL0);
+}
+u64 ticks_to_msecs(u64 ticks);
+u64 ticks_to_usecs(u64 ticks);
+
 void reboot(void) __attribute__((noreturn));
 void flush_and_reboot(void) __attribute__((noreturn));
+
+u64 timeout_calculate(u32 usec);
+bool timeout_expired(u64 timeout);
 
 #define SPINLOCK_ALIGN 64
 
@@ -404,11 +423,11 @@ static inline int poll32(u64 addr, u32 mask, u32 target, u32 timeout)
     return -1;
 }
 
-typedef u64(generic_func)(u64, u64, u64, u64);
+typedef u64(generic_func)(u64, u64, u64, u64, u64);
 
 struct vector_args {
     generic_func *entry;
-    u64 args[4];
+    u64 args[5];
     bool restore_logo;
 };
 
@@ -417,5 +436,7 @@ extern u32 board_id, chip_id;
 extern struct vector_args next_stage;
 
 void deep_wfi(void);
+
+bool is_heap(void *addr);
 
 #endif
