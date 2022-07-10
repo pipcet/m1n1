@@ -292,11 +292,11 @@ void exc_irq(u64 *regs)
     uerstat = read32(0x235200014);
     ufstat = read32(0x235200018);
 #endif
+    u32 reason = read32(0x23b102004);
+
     printf("Exception: IRQ (from %s) die: %lu type: %lu num: %lu mpidr: %lx\n",
            get_exception_source(0), FIELD_GET(AIC_EVENT_DIE, reason),
            FIELD_GET(AIC_EVENT_TYPE, reason), FIELD_GET(AIC_EVENT_NUM, reason), mrs(MPIDR_EL1));
-
-    u32 reason = read32(0x23b102004);
 
     printf(" type: %d num: %d mpidr: %lx\n", reason >> 16, reason & 0xffff, mrs(MPIDR_EL1));
 
