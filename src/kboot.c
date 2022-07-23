@@ -3,6 +3,7 @@
 #include "kboot.h"
 #include "adt.h"
 #include "assert.h"
+#include "dapf.h"
 #include "exception.h"
 #include "malloc.h"
 #include "memory.h"
@@ -238,8 +239,11 @@ static int dt_set_chosen(void)
     }
 
     int ipd = adt_path_offset(adt, "/arm-io/spi3/ipd");
+    if (ipd < 0)
+        ipd = adt_path_offset(adt, "/arm-io/dockchannel-mtp/mtp-transport/keyboard");
+
     if (ipd < 0) {
-        printf("ADT: /arm-io/spi3/ipd not found, no keyboard\n");
+        printf("ADT: no keyboard found\n");
     } else {
         u32 len;
         const u8 *kblang = adt_getprop(adt, ipd, "kblang-calibration", &len);
@@ -499,10 +503,12 @@ err:
 static struct {
     const char *alias;
     const char *fdt_property;
+    bool swap;
 } mac_address_devices[] = {
     {
         .alias = "bluetooth0",
         .fdt_property = "local-bd-address",
+        .swap = true,
     },
     {
         .alias = "ethernet0",
@@ -528,6 +534,14 @@ static int dt_set_mac_addresses(void)
         uint8_t addr[6];
         if (ADT_GETPROP_ARRAY(adt, anode, propname, addr) < 0)
             continue;
+
+        if (mac_address_devices[i].swap) {
+            for (size_t i = 0; i < sizeof(addr) / 2; ++i) {
+                uint8_t tmp = addr[i];
+                addr[i] = addr[sizeof(addr) - i - 1];
+                addr[sizeof(addr) - i - 1] = tmp;
+            }
+        }
 
         const char *path = fdt_get_alias(dt, mac_address_devices[i].alias);
         if (path == NULL)
@@ -1113,6 +1127,7 @@ int kboot_boot(void *kernel)
 {
     usb_init();
     pcie_init();
+    dapf_init_all();
 
     printf("Setting SMP mode to WFE...\n");
     smp_set_wfe_mode(true);

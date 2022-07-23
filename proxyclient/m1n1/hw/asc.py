@@ -79,11 +79,20 @@ class ASC:
 
     def boot(self):
         self.asc.CPU_CONTROL.set(RUN=1)
+
+    def shutdown(self):
         self.asc.CPU_CONTROL.set(RUN=0)
 
     def add_ep(self, idx, ep):
         self.epmap[idx] = ep
         setattr(self, ep.SHORT, ep)
+
+    def has_messages(self):
+        return not self.asc.OUTBOX_CTRL.reg.EMPTY
+
+    def work_pending(self):
+        while self.has_messages():
+            self.work()
 
     def work(self):
         if self.asc.OUTBOX_CTRL.reg.EMPTY:
